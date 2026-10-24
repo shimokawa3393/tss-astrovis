@@ -7,6 +7,8 @@ Rikenomics カオス理論シリーズ 第2話「ストレンジアトラクタ�
 ④結(カメラが引いて全体を俯瞰する)に十分な尺を取るため、他ショットより長めに配分している。
 """
 
+import os
+
 FPS = 30
 
 SHOTS = [
@@ -95,8 +97,9 @@ X0, Y0, Z0 = 0.1, 0.0, 0.0
 SCALE = 0.12
 Z_OFFSET = -3.0
 
-WIP_BLEND = "/Users/shouheishimokawa/rikenomics-lab/ep2/blend/Rikenomics_Episode02_WIP.blend"
-STILLCHECK_DIR = "/Users/shouheishimokawa/rikenomics-lab/ep2/stillcheck"
+EP2 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WIP_BLEND = os.path.join(EP2, "blend/Rikenomics_Episode02_WIP.blend")
+STILLCHECK_DIR = os.path.join(EP2, "stillcheck")
 
 
 def compute_trajectory(x0, y0, z0):

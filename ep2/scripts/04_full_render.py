@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy
 from shots import WIP_BLEND, SHOTS
 
-OUTPUT_MP4 = "/Users/shouheishimokawa/rikenomics-lab/ep2/mp4/final/Rikenomics_Episode02_Lorenz.mp4"
+EP2 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTPUT_MP4 = os.path.join(EP2, "mp4/final/Rikenomics_Episode02_Lorenz.mp4")
 
 
 def main():

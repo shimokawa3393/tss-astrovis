@@ -17,9 +17,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy
 from shots import FPS, FRAMES_DIR, RESOLUTION, TOTAL_FRAMES
 
-OUTPUT_PATH = "/Users/shouheishimokawa/rikenomics-lab/ep3/mp4/final/Rikenomics_Episode03_Spiral.mp4"
-PREVIEW_PATH = "/Users/shouheishimokawa/rikenomics-lab/ep3/mp4/preview/Rikenomics_Episode03_Spiral_preview.mp4"
-AUDIO_PATH = "/Users/shouheishimokawa/rikenomics-lab/ep3/mp3/epic-cinematic-orchestral-hybrid-instrumental_092726.mp3"  # 曲側でフェードアウト済み
+EP3 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTPUT_PATH = os.path.join(EP3, "mp4/final/Rikenomics_Episode03_Spiral.mp4")
+PREVIEW_PATH = os.path.join(EP3, "mp4/preview/Rikenomics_Episode03_Spiral_preview.mp4")
+AUDIO_PATH = os.path.join(EP3, "mp3/epic-cinematic-orchestral-hybrid-instrumental_092726.mp3")  # 曲側でフェードアウト済み
 
 
 def main():

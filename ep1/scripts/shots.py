@@ -8,6 +8,8 @@ Rikenomics 重力シリーズ 第1話「スパゲッティフィケーション�
   十分な尺を取るため240フレームに拡張している。
 """
 
+import os
+
 FPS = 30
 
 SHOTS = [
@@ -67,5 +69,6 @@ def total_frame_end():
     return SHOTS[-1]["frame_end"]
 
 
-SOURCE_BLEND = "/Users/shouheishimokawa/rikenomics-lab/ep1/スパゲティー没.blend"
-WIP_BLEND = "/Users/shouheishimokawa/rikenomics-lab/ep1/blend/Rikenomics_Episode01_WIP.blend"
+EP1 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SOURCE_BLEND = os.path.join(EP1, "スパゲティー没.blend")
+WIP_BLEND = os.path.join(EP1, "blend/Rikenomics_Episode01_WIP.blend")

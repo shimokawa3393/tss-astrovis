@@ -6,6 +6,8 @@ ep4「なぜ渋滞は起きる」の共通定数と、道路の形(Blenderに依
 左(-X)が我々の車線、右(+X)が対向車線。中央分離帯がX=0。
 """
 
+import os
+
 FPS = 30
 TOTAL_FRAMES = 900
 RESOLUTION = (1080, 1920)  # 縦型(9:16、SNSリール向け)
@@ -17,12 +19,13 @@ SHOT_FRAMES = {
     "3": (421, 900),  # 止まる場所が後ろへずれていく。3倍(途中で別の計算に切り替えず、最後まで流す)
 }
 
-WIP_BLEND = "/Users/shouheishimokawa/rikenomics-lab/ep4/blend/Rikenomics_Episode04_WIP.blend"
-STILLCHECK_DIR = "/Users/shouheishimokawa/rikenomics-lab/ep4/stillcheck"
+EP4 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WIP_BLEND = os.path.join(EP4, "blend/Rikenomics_Episode04_WIP.blend")
+STILLCHECK_DIR = os.path.join(EP4, "stillcheck")
 # 連番の置き場所。それぞれの下に real(リアルな1画面)・top(上の画面)・bottom(下の画面)を作る
-FRAMES_DIR = "/Users/shouheishimokawa/rikenomics-lab/ep4/frames"
-PREVIEW_FRAMES_DIR = "/Users/shouheishimokawa/rikenomics-lab/ep4/preview_frames"  # 動きの確認用(半分の解像度)
-DRAFT_FRAMES_DIR = "/Users/shouheishimokawa/rikenomics-lab/ep4/draft_frames"  # ドラフト(4分の1・2フレームに1枚)
+FRAMES_DIR = os.path.join(EP4, "frames")
+PREVIEW_FRAMES_DIR = os.path.join(EP4, "preview_frames")  # 動きの確認用(半分の解像度)
+DRAFT_FRAMES_DIR = os.path.join(EP4, "draft_frames")  # ドラフト(4分の1・2フレームに1枚)
 
 # --- 道路(日本の高速道路の標準的な寸法) ---
 LANE_WIDTH = 3.6

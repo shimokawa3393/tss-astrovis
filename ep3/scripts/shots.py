@@ -17,6 +17,7 @@ Rikenomics 宇宙スケールシリーズ 第3話「太陽系の螺旋」
   銀河中心は-Y方向、銀河面はX-Y平面。
 """
 
+import os
 import math
 from datetime import datetime, timedelta, timezone
 
@@ -73,9 +74,10 @@ GAL_Y_EQ = (0.4941094279, -0.4448296300, 0.7469822445)  # 銀河回転方向(l=9
 GAL_Z_EQ = (-0.8676661490, -0.1980763734, 0.4559837762)  # 銀河北極
 OBLIQUITY_DEG = 23.43928  # J2000の黄道傾斜角
 
-WIP_BLEND = "/Users/shouheishimokawa/rikenomics-lab/ep3/blend/Rikenomics_Episode03_WIP.blend"
-STILLCHECK_DIR = "/Users/shouheishimokawa/rikenomics-lab/ep3/stillcheck"
-FRAMES_DIR = "/Users/shouheishimokawa/rikenomics-lab/ep3/frames"
+EP3 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WIP_BLEND = os.path.join(EP3, "blend/Rikenomics_Episode03_WIP.blend")
+STILLCHECK_DIR = os.path.join(EP3, "stillcheck")
+FRAMES_DIR = os.path.join(EP3, "frames")
 RESOLUTION = (1080, 1920)  # 縦型(9:16、SNSリール向け)
 
 J2000 = datetime(2000, 1, 1, 12, tzinfo=timezone.utc)

@@ -27,9 +27,10 @@ import scenario
 from shots import DRAFT_FRAMES_DIR, FPS, FRAMES_DIR, PREVIEW_FRAMES_DIR, RESOLUTION, STILLCHECK_DIR, TOTAL_FRAMES
 
 DRAFT_STEP = 2
-OUTPUT_PATH = "/Users/shouheishimokawa/rikenomics-lab/ep4/mp4/final/Rikenomics_Episode04_Jam.mp4"
-PREVIEW_DIR = "/Users/shouheishimokawa/rikenomics-lab/ep4/mp4/preview"  # draft・preview・share(確認用)はこちらへ
-AUDIO_PATH = "/Users/shouheishimokawa/rikenomics-lab/ep4/wav/Rikenomics_Episode04_mix.wav"  # 05_mix_audio.py で走行音とBGMを組んだもの
+EP4 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTPUT_PATH = os.path.join(EP4, "mp4/final/Rikenomics_Episode04_Jam.mp4")
+PREVIEW_DIR = os.path.join(EP4, "mp4/preview")  # draft・preview・share(確認用)はこちらへ
+AUDIO_PATH = os.path.join(EP4, "wav/Rikenomics_Episode04_mix.wav")  # 05_mix_audio.py で走行音とBGMを組んだもの
 SHOW_SPEED_LABEL = False  # 台数の計器とテロップで情報が増え「倍速表示もいらない」。倍速は投稿文の注記に書く
 LABEL_LOCATION = (0.12, 0.83)  # 倍率の文字の位置(画面に対する割合、下から。左上、説明テロップの下)。
 # 最初は左の真ん中より少し下だったが、台数の計器と並べると情報がまとまりすぎるので分けた
