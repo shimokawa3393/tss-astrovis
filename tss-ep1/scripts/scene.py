@@ -11,11 +11,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import bpy
 
-from physics import R_SUN, deflection_angle, focal_distance, to_au
+from physics import NEPTUNE_AU, R_SUN, deflection_angle, focal_distance, to_au
 
 EP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEXTURE_DIR = os.path.join(EP_DIR, "textures")
 SUN_TEXTURE = os.path.join(TEXTURE_DIR, "2k_sun.jpg")  # Solar System Scope（CC BY 4.0、投稿文にクレジット）
+NEPTUNE_TEXTURE = os.path.join(TEXTURE_DIR, "2k_neptune.jpg")  # Solar System Scope（CC BY 4.0）
+FONT = "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"
 STARS_EXR = os.path.join(TEXTURE_DIR, "hiptyc_2020_16k_gal.exr")  # NASA SVS Deep Star Maps 2020（投稿文にクレジット）
 
 RESOLUTION = (1080, 1920)
@@ -36,6 +38,9 @@ HALO_STRENGTH = 0.6
 HALO_EXTENT = 1.6  # 太陽の縁から、光が消えるまで（太陽半径の倍数）
 HALO_POWER = 3.0  # 大きいほど縁の近くに光が締まり、外はなめらかに消える
 STAR_STRENGTH = 0.6
+
+RULER_COLOR = (0.75, 0.68, 0.55, 1)
+RULER_STRENGTH = 0.5
 
 SUN_RADIUS_BU = to_au(R_SUN) * LATERAL_K / AXIAL_AU_PER_BU
 
@@ -200,21 +205,23 @@ def build_axis_and_line(top_z, bottom_z, axis_width_bu, line_width_bu, show_line
     return axis, line
 
 
-def build_sun():
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=SUN_DRAW_RADIUS_BU, location=(0, 0, 0), segments=64, ring_count=32)
+def build_sun(radius=None):
+    """radius を省くと、一番内側の光線に接する大きさ（2a・3a）。3b は光線が太陽の近くに出ないので小さな記号にする。"""
+    radius = radius or SUN_DRAW_RADIUS_BU
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=radius, location=(0, 0, 0), segments=64, ring_count=32)
     sun = bpy.context.active_object
     sun.name = "Sun"
     bpy.ops.object.shade_smooth()  # プリミティブはフラットシェーディング（Rikenomics 第5章）
     sun.rotation_euler = (math.radians(20), 0, math.radians(35))
     sun.data.materials.append(sun_material())
-    build_halo()
+    build_halo(radius)
     return sun
 
 
-def build_halo():
+def build_halo(radius):
     """太陽の後ろの板に、縁から外へなめらかに薄れる光を描く（参考画像のにじみ）。筋は入れない（10-25「このコロナはない」）。"""
-    size = SUN_DRAW_RADIUS_BU * (1 + HALO_EXTENT) * 2.2
-    bpy.ops.mesh.primitive_plane_add(size=size, location=(0, SUN_DRAW_RADIUS_BU * 1.5, 0), rotation=(math.radians(90), 0, 0))
+    size = radius * (1 + HALO_EXTENT) * 2.2
+    bpy.ops.mesh.primitive_plane_add(size=size, location=(0, radius * 1.5, 0), rotation=(math.radians(90), 0, 0))
     plane = bpy.context.active_object
     plane.name = "Halo"
     mat, nt = new_material("HaloGlow")
@@ -228,8 +235,8 @@ def build_halo():
     length.operation = 'LENGTH'
     falloff = nt.nodes.new('ShaderNodeMapRange')
     falloff.clamp = True
-    falloff.inputs['From Min'].default_value = SUN_DRAW_RADIUS_BU * 0.95
-    falloff.inputs['From Max'].default_value = SUN_DRAW_RADIUS_BU * (1 + HALO_EXTENT)
+    falloff.inputs['From Min'].default_value = radius * 0.95
+    falloff.inputs['From Max'].default_value = radius * (1 + HALO_EXTENT)
     falloff.inputs['To Min'].default_value = 1.0
     falloff.inputs['To Max'].default_value = 0.0
     power = nt.nodes.new('ShaderNodeMath')
@@ -249,6 +256,57 @@ def build_halo():
     nt.links.new(add.outputs[0], out.inputs[0])
     plane.data.materials.append(mat)
     return plane
+
+
+def text_label(name, body, x, z, size_bu, align='LEFT'):
+    data = bpy.data.curves.new(name, type='FONT')
+    data.body = body
+    data.font = bpy.data.fonts.load(FONT, check_existing=True)
+    data.size = size_bu
+    data.align_x = align
+    data.align_y = 'CENTER'
+    obj = bpy.data.objects.new(name, data)
+    bpy.context.collection.objects.link(obj)
+    obj.location = (x, -0.2, z)
+    obj.rotation_euler = (math.radians(90), 0, 0)  # XZ 面に立ててカメラに向ける
+    obj.data.materials.append(emission_material(f"{name}Glow", RULER_COLOR, RULER_STRENGTH * 1.6))
+    return obj
+
+
+def build_ruler(max_au, px_bu):
+    """軸に重ねた AU の目盛り。10AUごとに短い線、100AUごとに長い線と数字（3b で流れていく）。"""
+    mat = emission_material("RulerGlow", RULER_COLOR, RULER_STRENGTH)
+    for au in range(10, max_au + 1, 10):
+        major = au % 100 == 0
+        half = (16 if major else 7) * px_bu
+        polyline(f"Tick_{au:04d}", [(-half, -0.1, -bu(au)), (half, -0.1, -bu(au))], mat, 1.2 * px_bu)
+        if major:
+            text_label(f"TickLabel_{au:04d}", f"{au} AU", 26 * px_bu, -bu(au), 26 * px_bu)
+
+
+def build_neptune(radius_bu, x_bu, label_size_bu):
+    """海王星の距離の目印（約30AU）。数字は出さない（台本）。軸の脇に置く（実際の位置ではなく距離だけの目印）。"""
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=radius_bu, location=(x_bu, 0, -bu(NEPTUNE_AU)), segments=48, ring_count=24)
+    planet = bpy.context.active_object
+    planet.name = "Neptune"
+    bpy.ops.object.shade_smooth()
+    mat, nt = new_material("NeptuneSurface")
+    out = nt.nodes.new('ShaderNodeOutputMaterial')
+    bsdf = nt.nodes.new('ShaderNodeBsdfPrincipled')
+    bsdf.inputs['Roughness'].default_value = 0.8
+    tex = nt.nodes.new('ShaderNodeTexImage')
+    tex.image = bpy.data.images.load(NEPTUNE_TEXTURE, check_existing=True)
+    nt.links.new(tex.outputs['Color'], bsdf.inputs['Base Color'])
+    nt.links.new(bsdf.outputs[0], out.inputs[0])
+    planet.data.materials.append(mat)
+    # 手前の斜め上から照らす（上からだけだと細い三日月になり、海王星と読めない）
+    light = bpy.data.lights.new("SunLight", type='SUN')
+    light.energy = 4.0
+    light_obj = bpy.data.objects.new("SunLight", light)
+    bpy.context.collection.objects.link(light_obj)
+    light_obj.rotation_euler = (math.radians(70), 0, 0)
+    text_label("NeptuneLabel", "海王星", x_bu, -bu(NEPTUNE_AU) - radius_bu - label_size_bu, label_size_bu, 'CENTER')
+    return planet
 
 
 # ------------------------------------------------------------
@@ -322,6 +380,7 @@ def setup_render(scene, resolution_percentage=100):
 def clear_scene():
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
-    for block in (bpy.data.materials, bpy.data.curves, bpy.data.meshes, bpy.data.cameras, bpy.data.node_groups):
+    for block in (bpy.data.materials, bpy.data.curves, bpy.data.meshes, bpy.data.cameras, bpy.data.lights,
+                  bpy.data.node_groups):
         for item in list(block):
             block.remove(item)
