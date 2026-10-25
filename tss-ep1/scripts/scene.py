@@ -56,6 +56,28 @@ def apparent_angle_deg(b_ratio):
     return math.degrees(math.atan(LATERAL_K * deflection_angle(b_ratio * R_SUN)))
 
 
+def ray_x(b_ratio, depth):
+    """太陽の面から depth [BU] 下での光線の横位置（片側、x>0）。
+
+    上では x = b（計算どおり）、軸とは焦点距離ちょうどで交わる。その間を、太陽の脇で幅 b のなめらかなカーブでつなぐ
+    （双曲線 x = b - (a/2)(d + sqrt(d² + b²))）。横だけ3万倍に広げた絵で太陽の面で折ると、折れた先が太陽の円に
+    食い込むため（10-25、2aで発覚）。
+    """
+    b = ray_lateral_bu(b_ratio)
+    f = ray_focus_bu(b_ratio)
+    a = 2 * b / (f + math.hypot(f, b))  # x(f) = 0 になる傾き
+    return b - a / 2 * (depth + math.hypot(depth, b))
+
+
+def _closest_approach_bu(b_ratio):
+    b = ray_lateral_bu(b_ratio)
+    return min(math.hypot(ray_x(b_ratio, d), d) for d in (b * (i / 500 - 1) * 2 for i in range(1001)))
+
+
+# 太陽の円は、一番内側の光線のカーブにちょうど接する大きさ（台本: 太陽の大きさは記号的で、横方向の拡大とは合わせない）
+SUN_DRAW_RADIUS_BU = _closest_approach_bu(B_RATIOS[0]) * 0.98
+
+
 # ------------------------------------------------------------
 # 材質
 # ------------------------------------------------------------
@@ -150,29 +172,28 @@ def polyline(name, points, material, width_bu):
     return obj
 
 
-def build_rays(top_z, bottom_z, width_bu):
-    """上から平行に来て太陽の面（z=0）で曲がり、焦点で軸と交わる光線。交わった先は薄れて消える。
-
-    曲がりは実際には太陽のすぐ近く（軸方向に太陽半径の数倍、AUに比べて0）で起きるので、z=0 で折る。
-    """
+def build_rays(top_z, bottom_z, width_bu, b_ratios=B_RATIOS):
+    """上から平行に来て太陽の脇で曲がり、焦点で軸と交わる光線。交わった先は薄れて消える（形は ray_x）。"""
     rays = []
-    for i, b_ratio in enumerate(B_RATIOS):
+    for i, b_ratio in enumerate(b_ratios):
         x0 = ray_lateral_bu(b_ratio)
         f = ray_focus_bu(b_ratio)
         fade = z_ramp_material(f"RayFade_{i:02d}", RAY_COLOR, -f, -f - bu(RAY_FADE_AU), RAY_STRENGTH, RAY_STRENGTH, 1.0, 0.0)
+        end_depth = min(-bottom_z, f + bu(RAY_FADE_AU))
+        # 太陽の脇のカーブは細かく、あとは焦点・終点まで
+        depths = [-top_z] + [x0 * (i / 20 - 1) * 4 for i in range(41)] + [f, end_depth]
+        depths = sorted(d for d in set(depths) if -top_z <= d <= end_depth)
         for side in (-1, 1):
-            x = side * x0
-            slope = -x / f  # z が 1 下がるごとの x の変化
-            end_z = max(bottom_z, -f - bu(RAY_FADE_AU))
-            end_x = x + slope * (-end_z)
             rays.append(polyline(f"Ray_{i:02d}_{'L' if side < 0 else 'R'}",
-                                 [(x, 0, top_z), (x, 0, 0), (0, 0, -f), (end_x, 0, end_z)], fade, width_bu))
+                                 [(side * ray_x(b_ratio, d), 0, -d) for d in depths], fade, width_bu))
     return rays
 
 
-def build_axis_and_line(top_z, bottom_z, axis_width_bu, line_width_bu):
+def build_axis_and_line(top_z, bottom_z, axis_width_bu, line_width_bu, show_line=True):
     axis = polyline("Axis", [(0, 0, top_z), (0, 0, bottom_z)],
                     emission_material("AxisGlow", RAY_COLOR, AXIS_STRENGTH), axis_width_bu)
+    if not show_line:
+        return axis, None
     f1, f3 = ray_focus_bu(B_RATIOS[0]), ray_focus_bu(B_RATIOS[-1])
     line_mat = z_ramp_material("FocalLineGlow", RAY_COLOR, -f1, -f3, *LINE_STRENGTH)
     line = polyline("FocalLine", [(0, -0.5, -f1), (0, -0.5, bottom_z)], line_mat, line_width_bu)
@@ -180,7 +201,7 @@ def build_axis_and_line(top_z, bottom_z, axis_width_bu, line_width_bu):
 
 
 def build_sun():
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=SUN_RADIUS_BU, location=(0, 0, 0), segments=64, ring_count=32)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=SUN_DRAW_RADIUS_BU, location=(0, 0, 0), segments=64, ring_count=32)
     sun = bpy.context.active_object
     sun.name = "Sun"
     bpy.ops.object.shade_smooth()  # プリミティブはフラットシェーディング（Rikenomics 第5章）
@@ -192,8 +213,8 @@ def build_sun():
 
 def build_halo():
     """太陽の後ろの板に、縁から外へなめらかに薄れる光を描く（参考画像のにじみ）。筋は入れない（10-25「このコロナはない」）。"""
-    size = SUN_RADIUS_BU * (1 + HALO_EXTENT) * 2.2
-    bpy.ops.mesh.primitive_plane_add(size=size, location=(0, SUN_RADIUS_BU * 1.5, 0), rotation=(math.radians(90), 0, 0))
+    size = SUN_DRAW_RADIUS_BU * (1 + HALO_EXTENT) * 2.2
+    bpy.ops.mesh.primitive_plane_add(size=size, location=(0, SUN_DRAW_RADIUS_BU * 1.5, 0), rotation=(math.radians(90), 0, 0))
     plane = bpy.context.active_object
     plane.name = "Halo"
     mat, nt = new_material("HaloGlow")
@@ -207,8 +228,8 @@ def build_halo():
     length.operation = 'LENGTH'
     falloff = nt.nodes.new('ShaderNodeMapRange')
     falloff.clamp = True
-    falloff.inputs['From Min'].default_value = SUN_RADIUS_BU * 0.95
-    falloff.inputs['From Max'].default_value = SUN_RADIUS_BU * (1 + HALO_EXTENT)
+    falloff.inputs['From Min'].default_value = SUN_DRAW_RADIUS_BU * 0.95
+    falloff.inputs['From Max'].default_value = SUN_DRAW_RADIUS_BU * (1 + HALO_EXTENT)
     falloff.inputs['To Min'].default_value = 1.0
     falloff.inputs['To Max'].default_value = 0.0
     power = nt.nodes.new('ShaderNodeMath')
