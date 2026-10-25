@@ -102,11 +102,12 @@ def build_unresolved_dot(center_z, px):
     return dot
 
 
-def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=20.0, strength=1.0):
+def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=138.0, lat_center_deg=35.0, strength=1.0):
     """惑星の像（イメージ）。画面の上で pixels×pixels の格子にそろえたモザイクにする。
 
     円盤の各点を、格子の中心に寄せてから球の向きに戻し、地球の画像を引く（正距円筒図）。
     照らす向きはカメラ側の左上から（満ち欠けを少し付けて球に見せる）。
+    正面に来るのは (lat_center_deg, lon_center_deg)。既定は日本（10-25ユーザー「せっかくなら日本中心にしたい」）。
     """
     rp = radius_px * px
     bpy.ops.mesh.primitive_circle_add(vertices=128, radius=rp, fill_type='TRIFAN', location=(0, 0, center_z),
@@ -149,9 +150,13 @@ def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=20.0, str
     ny = math_node('SQRT', math_node('MAXIMUM', math_node('SUBTRACT', 1.0, r2), 0.0))
     inside = math_node('LESS_THAN', r2, 1.0)
 
-    lon = math_node('ADD', math_node('ARCTAN2', nx, ny), math.radians(lon_center_deg))
+    # 画面の正面が緯度 lat_center_deg になるよう、X軸まわりに傾けてから緯度・経度を取る
+    c, s_ = math.cos(math.radians(lat_center_deg)), math.sin(math.radians(lat_center_deg))
+    nz_r = math_node('ADD', math_node('MULTIPLY', nz, c), math_node('MULTIPLY', ny, s_))
+    ny_r = math_node('SUBTRACT', math_node('MULTIPLY', ny, c), math_node('MULTIPLY', nz, s_))
+    lon = math_node('ADD', math_node('ARCTAN2', nx, ny_r), math.radians(lon_center_deg))
     u = math_node('ADD', math_node('DIVIDE', lon, 2 * math.pi), 0.5)
-    v = math_node('ADD', math_node('DIVIDE', math_node('ARCSINE', math_node('MINIMUM', nz, 1.0)), math.pi), 0.5)
+    v = math_node('ADD', math_node('DIVIDE', math_node('ARCSINE', math_node('MINIMUM', nz_r, 1.0)), math.pi), 0.5)
     uv = N.new('ShaderNodeCombineXYZ')
     L.new(u, uv.inputs['X'])
     L.new(v, uv.inputs['Y'])
