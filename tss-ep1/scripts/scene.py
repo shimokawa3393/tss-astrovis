@@ -24,12 +24,17 @@ LATERAL_K = 3e4  # 横方向の拡大率（10-25に決定。2a・3a・3bで共�
 B_RATIOS = [1 + 2 * i / 12 for i in range(13)]  # b = 太陽半径の1〜3倍を13本（片側）
 
 RAY_COLOR = (1.0, 0.72, 0.38, 1)
-RAY_STRENGTH = 1.2
+RAY_STRENGTH = 0.9
 RAY_FADE_AU = 800  # 軸と交わってから消えるまでの距離
 LINE_STRENGTH = (4.0, 12.0)  # 焦線の明るさ（548AUの始まり → 下端）。下ほど多くの光線が交わっている
 AXIS_STRENGTH = 0.25
-SUN_STRENGTH = 2.0
-SUN_TINT = (1.0, 0.5, 0.12, 1)
+SUN_STRENGTH = 2.2
+SUN_TINT_CENTER = (1.0, 0.62, 0.18, 1)  # 中心は明るい黄色寄り
+SUN_TINT_LIMB = (1.0, 0.28, 0.03, 1)  # 縁は濃いオレンジ（周辺減光）
+CORONA_COLOR = (1.0, 0.42, 0.08, 1)
+CORONA_STRENGTH = 4.0
+CORONA_EXTENT = 0.9  # 太陽の縁から、光が消えるまで（太陽半径の倍数）
+CORONA_POWER = 2.0  # 大きいほど縁の近くに光が締まる
 STAR_STRENGTH = 0.6
 
 SUN_RADIUS_BU = to_au(R_SUN) * LATERAL_K / AXIAL_AU_PER_BU
@@ -107,12 +112,19 @@ def sun_material():
     tex = nt.nodes.new('ShaderNodeTexImage')
     tex.image = bpy.data.images.load(SUN_TEXTURE, check_existing=True)
     em.inputs['Strength'].default_value = SUN_STRENGTH
-    # 明るい発光は AgX で色が抜けてピンクに寄るので、濃いオレンジを掛けて参考画像の色に戻す
+    # 中心が明るい黄色、縁が濃いオレンジ（カメラに向く度合いで混ぜる）
+    facing = nt.nodes.new('ShaderNodeLayerWeight')
+    facing.inputs['Blend'].default_value = 0.5
+    limb = nt.nodes.new('ShaderNodeMix')
+    limb.data_type = 'RGBA'
+    limb.inputs['A'].default_value = SUN_TINT_CENTER
+    limb.inputs['B'].default_value = SUN_TINT_LIMB
+    nt.links.new(facing.outputs['Facing'], limb.inputs['Factor'])
     tint = nt.nodes.new('ShaderNodeMix')
     tint.data_type = 'RGBA'
     tint.blend_type = 'MULTIPLY'
     tint.inputs['Factor'].default_value = 1.0
-    tint.inputs['B'].default_value = SUN_TINT
+    nt.links.new(limb.outputs['Result'], tint.inputs['B'])
     nt.links.new(tex.outputs['Color'], tint.inputs['A'])
     nt.links.new(tint.outputs['Result'], em.inputs['Color'])
     nt.links.new(em.outputs[0], out.inputs[0])
@@ -174,7 +186,76 @@ def build_sun():
     bpy.ops.object.shade_smooth()  # プリミティブはフラットシェーディング（Rikenomics 第5章）
     sun.rotation_euler = (math.radians(20), 0, math.radians(35))
     sun.data.materials.append(sun_material())
+    build_corona()
     return sun
+
+
+def build_corona():
+    """太陽の後ろの板に、縁から外へ薄れる光をノイズで揺らして描く（燃えている感じ）。加算なので奥の星は隠れない。"""
+    size = SUN_RADIUS_BU * (1 + CORONA_EXTENT) * 2.2
+    bpy.ops.mesh.primitive_plane_add(size=size, location=(0, SUN_RADIUS_BU * 1.5, 0), rotation=(math.radians(90), 0, 0))
+    plane = bpy.context.active_object
+    plane.name = "Corona"
+    mat, nt = new_material("CoronaGlow")
+    mat.surface_render_method = 'BLENDED'
+    out = nt.nodes.new('ShaderNodeOutputMaterial')
+    em = nt.nodes.new('ShaderNodeEmission')
+    tr = nt.nodes.new('ShaderNodeBsdfTransparent')
+    add = nt.nodes.new('ShaderNodeAddShader')
+    coord = nt.nodes.new('ShaderNodeTexCoord')
+    length = nt.nodes.new('ShaderNodeVectorMath')
+    length.operation = 'LENGTH'
+    falloff = nt.nodes.new('ShaderNodeMapRange')
+    falloff.clamp = True
+    falloff.inputs['From Min'].default_value = SUN_RADIUS_BU * 0.95
+    falloff.inputs['From Max'].default_value = SUN_RADIUS_BU * (1 + CORONA_EXTENT)
+    falloff.inputs['To Min'].default_value = 1.0
+    falloff.inputs['To Max'].default_value = 0.0
+    power = nt.nodes.new('ShaderNodeMath')
+    power.operation = 'POWER'
+    power.inputs[1].default_value = CORONA_POWER
+    noise = nt.nodes.new('ShaderNodeTexNoise')
+    noise.noise_dimensions = '4D'  # W を動かせば揺らめく（アニメーション用）
+    noise.inputs['Scale'].default_value = 3.0 / SUN_RADIUS_BU
+    noise.inputs['Detail'].default_value = 8.0
+    noise.inputs['Distortion'].default_value = 1.5
+    flicker = nt.nodes.new('ShaderNodeMapRange')
+    flicker.inputs['From Min'].default_value = 0.35
+    flicker.inputs['From Max'].default_value = 0.65
+    flicker.inputs['To Min'].default_value = 0.15
+    flicker.inputs['To Max'].default_value = 2.0
+    shape = nt.nodes.new('ShaderNodeMath')
+    shape.operation = 'MULTIPLY'
+    gain = nt.nodes.new('ShaderNodeMath')
+    gain.operation = 'MULTIPLY'
+    gain.inputs[1].default_value = CORONA_STRENGTH
+    em.inputs['Color'].default_value = CORONA_COLOR
+    nt.links.new(coord.outputs['Object'], length.inputs[0])
+    nt.links.new(length.outputs['Value'], falloff.inputs['Value'])
+    nt.links.new(falloff.outputs[0], power.inputs[0])
+    direction = nt.nodes.new('ShaderNodeVectorMath')
+    direction.operation = 'NORMALIZE'
+    radial = nt.nodes.new('ShaderNodeVectorMath')
+    radial.operation = 'SCALE'
+    radial.inputs['Scale'].default_value = 0.15  # 外向きにはゆっくり変わる（筋になる）
+    streak = nt.nodes.new('ShaderNodeVectorMath')
+    streak.operation = 'MULTIPLY_ADD'
+    streak.inputs[1].default_value = (SUN_RADIUS_BU * 2.5,) * 3
+    nt.links.new(coord.outputs['Object'], direction.inputs[0])
+    nt.links.new(coord.outputs['Object'], radial.inputs[0])
+    nt.links.new(direction.outputs[0], streak.inputs[0])
+    nt.links.new(radial.outputs[0], streak.inputs[2])
+    nt.links.new(streak.outputs[0], noise.inputs['Vector'])
+    nt.links.new(noise.outputs['Fac'], flicker.inputs['Value'])
+    nt.links.new(power.outputs[0], shape.inputs[0])
+    nt.links.new(flicker.outputs[0], shape.inputs[1])
+    nt.links.new(shape.outputs[0], gain.inputs[0])
+    nt.links.new(gain.outputs[0], em.inputs['Strength'])
+    nt.links.new(tr.outputs[0], add.inputs[0])
+    nt.links.new(em.outputs[0], add.inputs[1])
+    nt.links.new(add.outputs[0], out.inputs[0])
+    plane.data.materials.append(mat)
+    return plane
 
 
 # ------------------------------------------------------------
@@ -239,8 +320,8 @@ def setup_render(scene, resolution_percentage=100):
     scene.render.resolution_x, scene.render.resolution_y = RESOLUTION
     scene.render.resolution_percentage = resolution_percentage
     scene.render.image_settings.file_format = 'PNG'
-    scene.view_settings.view_transform = 'AgX'
-    scene.view_settings.look = 'AgX - Punchy'  # 既定の AgX は明るい太陽のオレンジがピンクに抜けた
+    # AgX は明るいオレンジがピンクに抜けた。Standard は明るいほど オレンジ→黄→白 になり、炎に見える
+    scene.view_settings.view_transform = 'Standard'
     build_world()
     build_compositor(scene)
 
