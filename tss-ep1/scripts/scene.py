@@ -218,13 +218,13 @@ def build_sun(radius=None):
     return sun
 
 
-def build_halo(radius):
+def build_halo(radius, color=HALO_COLOR, strength=HALO_STRENGTH, extent=HALO_EXTENT, name="Halo"):
     """太陽の後ろの板に、縁から外へなめらかに薄れる光を描く（参考画像のにじみ）。筋は入れない（10-25「このコロナはない」）。"""
-    size = radius * (1 + HALO_EXTENT) * 2.2
+    size = radius * (1 + extent) * 2.2
     bpy.ops.mesh.primitive_plane_add(size=size, location=(0, radius * 1.5, 0), rotation=(math.radians(90), 0, 0))
     plane = bpy.context.active_object
-    plane.name = "Halo"
-    mat, nt = new_material("HaloGlow")
+    plane.name = name
+    mat, nt = new_material(f"{name}Glow")
     mat.surface_render_method = 'BLENDED'
     out = nt.nodes.new('ShaderNodeOutputMaterial')
     em = nt.nodes.new('ShaderNodeEmission')
@@ -236,7 +236,7 @@ def build_halo(radius):
     falloff = nt.nodes.new('ShaderNodeMapRange')
     falloff.clamp = True
     falloff.inputs['From Min'].default_value = radius * 0.95
-    falloff.inputs['From Max'].default_value = radius * (1 + HALO_EXTENT)
+    falloff.inputs['From Max'].default_value = radius * (1 + extent)
     falloff.inputs['To Min'].default_value = 1.0
     falloff.inputs['To Max'].default_value = 0.0
     power = nt.nodes.new('ShaderNodeMath')
@@ -244,8 +244,8 @@ def build_halo(radius):
     power.inputs[1].default_value = HALO_POWER
     gain = nt.nodes.new('ShaderNodeMath')
     gain.operation = 'MULTIPLY'
-    gain.inputs[1].default_value = HALO_STRENGTH
-    em.inputs['Color'].default_value = HALO_COLOR
+    gain.inputs[1].default_value = strength
+    em.inputs['Color'].default_value = color
     nt.links.new(coord.outputs['Object'], length.inputs[0])
     nt.links.new(length.outputs['Value'], falloff.inputs['Value'])
     nt.links.new(falloff.outputs[0], power.inputs[0])

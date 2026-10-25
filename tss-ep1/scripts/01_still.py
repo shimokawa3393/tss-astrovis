@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import bpy
 
+import props
 import scene as sc
 
 VFOV_DEG = 30
@@ -36,6 +37,12 @@ LAYOUTS = {
     "3b_start": dict(_3B, anchor_au=0),
     "3b_neptune": dict(_3B, anchor_au=30.1),
     "3b": dict(_3B, anchor_au=548),
+    # 1a: レンズの中心を2aの太陽と同じ高さ（上から45%）に置き、集まる点も2aの一番内側の光が軸に近づく高さ（80%）にそろえる
+    "1a": dict(kind="lens", anchor_au=0, anchor_from_top=0.45, view_h_bu=19.2),
+    # 4b: 望遠鏡の視野（中心は上から60%、テロップは上の帯）。前半は光の点、後半はモザイクの像
+    "4b_dot": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=0),
+    "4b_mid": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=24),
+    "4b": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=1000),
 }
 
 
@@ -52,14 +59,26 @@ def main():
     margin = 10 * px
 
     sc.clear_scene()
-    sun_r = layout["sun_radius_px"] * px if "sun_radius_px" in layout else None
-    sc.build_sun(sun_r)
-    sc.build_rays(max(top_z, 0) + margin, bottom_z - margin, 0.9 * px, layout["b_ratios"])
-    sc.build_axis_and_line(top_z + margin, bottom_z - margin, 0.8 * px, 2.5 * px, layout["show_line"])
-    if "ruler_au" in layout:
-        sc.build_ruler(layout["ruler_au"], px)
-    if layout.get("neptune"):
-        sc.build_neptune(20 * px, -150 * px, 26 * px)
+    kind = layout.get("kind", "rays")
+    sun_r = None
+    if kind == "lens":
+        props.build_lens_scene(px, top_z + margin, bottom_z - margin, half_width_px=460, thickness_px=80,
+                               ray_x_px=[80, 160, 240, 320, 400], focus_px=0.35 * sc.RESOLUTION[1], fade_px=300)
+    elif kind == "planet":
+        props.build_viewfinder(0, 380, px)
+        if layout["pixels"]:
+            props.build_planet_image(0, 330, layout["pixels"], px)
+        else:
+            props.build_unresolved_dot(0, px)
+    else:
+        sun_r = layout["sun_radius_px"] * px if "sun_radius_px" in layout else None
+        sc.build_sun(sun_r)
+        sc.build_rays(max(top_z, 0) + margin, bottom_z - margin, 0.9 * px, layout["b_ratios"])
+        sc.build_axis_and_line(top_z + margin, bottom_z - margin, 0.8 * px, 2.5 * px, layout["show_line"])
+        if "ruler_au" in layout:
+            sc.build_ruler(layout["ruler_au"], px)
+        if layout.get("neptune"):
+            sc.build_neptune(20 * px, -150 * px, 26 * px)
     sc.build_camera(top_z - view_h / 2, view_h, VFOV_DEG)
 
     scene = bpy.context.scene
