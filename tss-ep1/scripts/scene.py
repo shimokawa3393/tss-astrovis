@@ -28,13 +28,13 @@ RAY_STRENGTH = 0.9
 RAY_FADE_AU = 800  # 軸と交わってから消えるまでの距離
 LINE_STRENGTH = (4.0, 12.0)  # 焦線の明るさ（548AUの始まり → 下端）。下ほど多くの光線が交わっている
 AXIS_STRENGTH = 0.25
-SUN_STRENGTH = 2.2
+SUN_STRENGTH = 3.0
 SUN_TINT_CENTER = (1.0, 0.62, 0.18, 1)  # 中心は明るい黄色寄り
 SUN_TINT_LIMB = (1.0, 0.28, 0.03, 1)  # 縁は濃いオレンジ（周辺減光）
-CORONA_COLOR = (1.0, 0.42, 0.08, 1)
-CORONA_STRENGTH = 4.0
-CORONA_EXTENT = 0.9  # 太陽の縁から、光が消えるまで（太陽半径の倍数）
-CORONA_POWER = 2.0  # 大きいほど縁の近くに光が締まる
+HALO_COLOR = (1.0, 0.45, 0.1, 1)
+HALO_STRENGTH = 1.2
+HALO_EXTENT = 2.5  # 太陽の縁から、光が消えるまで（太陽半径の倍数）
+HALO_POWER = 3.0  # 大きいほど縁の近くに光が締まり、外はなめらかに消える
 STAR_STRENGTH = 0.6
 
 SUN_RADIUS_BU = to_au(R_SUN) * LATERAL_K / AXIAL_AU_PER_BU
@@ -186,17 +186,17 @@ def build_sun():
     bpy.ops.object.shade_smooth()  # プリミティブはフラットシェーディング（Rikenomics 第5章）
     sun.rotation_euler = (math.radians(20), 0, math.radians(35))
     sun.data.materials.append(sun_material())
-    build_corona()
+    build_halo()
     return sun
 
 
-def build_corona():
-    """太陽の後ろの板に、縁から外へ薄れる光をノイズで揺らして描く（燃えている感じ）。加算なので奥の星は隠れない。"""
-    size = SUN_RADIUS_BU * (1 + CORONA_EXTENT) * 2.2
+def build_halo():
+    """太陽の後ろの板に、縁から外へなめらかに薄れる光を描く（参考画像のにじみ）。筋は入れない（10-25「このコロナはない」）。"""
+    size = SUN_RADIUS_BU * (1 + HALO_EXTENT) * 2.2
     bpy.ops.mesh.primitive_plane_add(size=size, location=(0, SUN_RADIUS_BU * 1.5, 0), rotation=(math.radians(90), 0, 0))
     plane = bpy.context.active_object
-    plane.name = "Corona"
-    mat, nt = new_material("CoronaGlow")
+    plane.name = "Halo"
+    mat, nt = new_material("HaloGlow")
     mat.surface_render_method = 'BLENDED'
     out = nt.nodes.new('ShaderNodeOutputMaterial')
     em = nt.nodes.new('ShaderNodeEmission')
@@ -208,48 +208,20 @@ def build_corona():
     falloff = nt.nodes.new('ShaderNodeMapRange')
     falloff.clamp = True
     falloff.inputs['From Min'].default_value = SUN_RADIUS_BU * 0.95
-    falloff.inputs['From Max'].default_value = SUN_RADIUS_BU * (1 + CORONA_EXTENT)
+    falloff.inputs['From Max'].default_value = SUN_RADIUS_BU * (1 + HALO_EXTENT)
     falloff.inputs['To Min'].default_value = 1.0
     falloff.inputs['To Max'].default_value = 0.0
     power = nt.nodes.new('ShaderNodeMath')
     power.operation = 'POWER'
-    power.inputs[1].default_value = CORONA_POWER
-    noise = nt.nodes.new('ShaderNodeTexNoise')
-    noise.noise_dimensions = '4D'  # W を動かせば揺らめく（アニメーション用）
-    noise.inputs['Scale'].default_value = 3.0 / SUN_RADIUS_BU
-    noise.inputs['Detail'].default_value = 8.0
-    noise.inputs['Distortion'].default_value = 1.5
-    flicker = nt.nodes.new('ShaderNodeMapRange')
-    flicker.inputs['From Min'].default_value = 0.35
-    flicker.inputs['From Max'].default_value = 0.65
-    flicker.inputs['To Min'].default_value = 0.15
-    flicker.inputs['To Max'].default_value = 2.0
-    shape = nt.nodes.new('ShaderNodeMath')
-    shape.operation = 'MULTIPLY'
+    power.inputs[1].default_value = HALO_POWER
     gain = nt.nodes.new('ShaderNodeMath')
     gain.operation = 'MULTIPLY'
-    gain.inputs[1].default_value = CORONA_STRENGTH
-    em.inputs['Color'].default_value = CORONA_COLOR
+    gain.inputs[1].default_value = HALO_STRENGTH
+    em.inputs['Color'].default_value = HALO_COLOR
     nt.links.new(coord.outputs['Object'], length.inputs[0])
     nt.links.new(length.outputs['Value'], falloff.inputs['Value'])
     nt.links.new(falloff.outputs[0], power.inputs[0])
-    direction = nt.nodes.new('ShaderNodeVectorMath')
-    direction.operation = 'NORMALIZE'
-    radial = nt.nodes.new('ShaderNodeVectorMath')
-    radial.operation = 'SCALE'
-    radial.inputs['Scale'].default_value = 0.15  # 外向きにはゆっくり変わる（筋になる）
-    streak = nt.nodes.new('ShaderNodeVectorMath')
-    streak.operation = 'MULTIPLY_ADD'
-    streak.inputs[1].default_value = (SUN_RADIUS_BU * 2.5,) * 3
-    nt.links.new(coord.outputs['Object'], direction.inputs[0])
-    nt.links.new(coord.outputs['Object'], radial.inputs[0])
-    nt.links.new(direction.outputs[0], streak.inputs[0])
-    nt.links.new(radial.outputs[0], streak.inputs[2])
-    nt.links.new(streak.outputs[0], noise.inputs['Vector'])
-    nt.links.new(noise.outputs['Fac'], flicker.inputs['Value'])
-    nt.links.new(power.outputs[0], shape.inputs[0])
-    nt.links.new(flicker.outputs[0], shape.inputs[1])
-    nt.links.new(shape.outputs[0], gain.inputs[0])
+    nt.links.new(power.outputs[0], gain.inputs[0])
     nt.links.new(gain.outputs[0], em.inputs['Strength'])
     nt.links.new(tr.outputs[0], add.inputs[0])
     nt.links.new(em.outputs[0], add.inputs[1])
