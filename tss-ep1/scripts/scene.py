@@ -32,8 +32,8 @@ SUN_STRENGTH = 3.0
 SUN_TINT_CENTER = (1.0, 0.62, 0.18, 1)  # 中心は明るい黄色寄り
 SUN_TINT_LIMB = (1.0, 0.28, 0.03, 1)  # 縁は濃いオレンジ（周辺減光）
 HALO_COLOR = (1.0, 0.45, 0.1, 1)
-HALO_STRENGTH = 1.2
-HALO_EXTENT = 2.5  # 太陽の縁から、光が消えるまで（太陽半径の倍数）
+HALO_STRENGTH = 0.6
+HALO_EXTENT = 1.6  # 太陽の縁から、光が消えるまで（太陽半径の倍数）
 HALO_POWER = 3.0  # 大きいほど縁の近くに光が締まり、外はなめらかに消える
 STAR_STRENGTH = 0.6
 
