@@ -102,12 +102,12 @@ def build_unresolved_dot(center_z, px):
     return dot
 
 
-def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=138.0, lat_center_deg=35.0, strength=1.0):
+def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=122.0, lat_center_deg=32.0, strength=1.0):
     """惑星の像（イメージ）。画面の上で pixels×pixels の格子にそろえたモザイクにする。
 
     円盤の各点を、格子の中心に寄せてから球の向きに戻し、地球の画像を引く（正距円筒図）。
     照らす向きはカメラ側の左上から（満ち欠けを少し付けて球に見せる）。
-    正面に来るのは (lat_center_deg, lon_center_deg)。既定は日本（10-25ユーザー「せっかくなら日本中心にしたい」）。
+    正面に来るのは (lat_center_deg, lon_center_deg)。既定は日本を少し右に置く向き（10-25ユーザー「日本中心に」→「日本がちょい右にズレてる感じで」）。
     """
     rp = radius_px * px
     bpy.ops.mesh.primitive_circle_add(vertices=128, radius=rp, fill_type='TRIFAN', location=(0, 0, center_z),
@@ -167,7 +167,7 @@ def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=138.0, la
     L.new(uv.outputs[0], tex.inputs['Vector'])
 
     # 照らす向き（画面の左上・手前から）
-    lx, ly, lz = -0.45, 0.75, 0.48
+    lx, ly, lz = -0.2, 0.8, 0.45
     norm = math.sqrt(lx * lx + ly * ly + lz * lz)
     lit = math_node('ADD', math_node('MULTIPLY', nx, lx / norm), math_node('MULTIPLY', ny, ly / norm))
     lit = math_node('ADD', lit, math_node('MULTIPLY', nz, lz / norm))
