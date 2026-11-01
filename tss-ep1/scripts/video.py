@@ -25,7 +25,7 @@ from cuts import CUT_BY_ID, CUTS, FPS, RENDERED_CUTS, TOTAL_FRAMES
 
 DRAFT_STEP = 2
 TELOP_FONT = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
-TELOP_SIZE = 64  # 本番解像度（横1080）での画素
+TELOP_SIZE = 72  # 本番解像度（横1080）での画素（最初は64px。ユーザー「少し上げられる？」）
 TELOP_TOP = 0.89  # 1行目の中心の高さ（下から）。上から約11%（アプリの上端のボタンの少し下）
 TELOP_LINE = 1.35  # 行の間隔（文字の大きさの倍数）
 TELOP_FADE = 0.4  # 秒（ユーザーの好み）
