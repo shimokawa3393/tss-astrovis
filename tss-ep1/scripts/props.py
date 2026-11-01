@@ -53,8 +53,24 @@ def translucent_emission(name, color, strength, opacity):
 # ------------------------------------------------------------
 # 1a: レンズ
 # ------------------------------------------------------------
-def build_lens_scene(px, top_z, bottom_z, half_width_px, thickness_px, ray_x_px, focus_px, fade_px):
-    """凸レンズの断面（中心が原点）と、上から平行に来てレンズで折れ、1点に集まる光線。"""
+def _clip_below(points, z_min):
+    """上から下へ並んだ点の列を、z_min より上だけにする（光線が上から伸びていく途中）。"""
+    out = [points[0]]
+    for a, b in zip(points, points[1:]):
+        if b[2] >= z_min:
+            out.append(b)
+            continue
+        t = (a[2] - z_min) / (a[2] - b[2])
+        out.append(tuple(a[k] + (b[k] - a[k]) * t for k in range(3)))
+        break
+    return out
+
+
+def build_lens_scene(px, top_z, bottom_z, half_width_px, thickness_px, ray_x_px, focus_px, fade_px, front_z=None):
+    """凸レンズの断面（中心が原点）と、上から平行に来てレンズで折れ、1点に集まる光線。
+
+    front_z を渡すと、光線はそこまで（上から伸びていく途中）。集まる点は光線が届いてから光る。
+    """
     w, t = half_width_px * px, thickness_px * px / 2
     xs = [w * (i / 40 - 1) for i in range(81)]
     outline = [(x, t * (1 - (x / w) ** 2)) for x in xs] + [(x, -t * (1 - (x / w) ** 2)) for x in reversed(xs)]
@@ -65,12 +81,18 @@ def build_lens_scene(px, top_z, bottom_z, half_width_px, thickness_px, ray_x_px,
     f, fade = focus_px * px, fade_px * px
     mat = sc.z_ramp_material("LensRayFade", sc.RAY_COLOR, -f, -f - fade, sc.RAY_STRENGTH, sc.RAY_STRENGTH, 1.0, 0.0)
     end_depth = min(-bottom_z, f + fade)
+    front_z = bottom_z if front_z is None else front_z
+    if front_z >= top_z:
+        return
     for i, xp in enumerate(ray_x_px):
         for side in (-1, 1):
             x = side * xp * px
             end_x = x - x / f * end_depth
             sc.polyline(f"LensRay_{i:02d}_{'L' if side < 0 else 'R'}",
-                        [(x, 0, top_z), (x, 0, 0), (0, 0, -f), (end_x, 0, -end_depth)], mat, 0.9 * px)
+                        _clip_below([(x, 0, top_z), (x, 0, 0), (0, 0, -f), (end_x, 0, -end_depth)], front_z), mat,
+                        0.9 * px)
+    if front_z > -f:
+        return
     # 集まった点が小さく光る
     bpy.ops.mesh.primitive_uv_sphere_add(radius=4 * px, location=(0, -0.1, -f))
     dot = bpy.context.active_object
@@ -91,18 +113,19 @@ def build_viewfinder(center_z, radius_px, px):
                        1.2 * px)
 
 
-def build_unresolved_dot(center_z, px):
-    """ふつうの望遠鏡で見た系外惑星（どれだけ拡大しても1つの光の点）。"""
+def build_unresolved_dot(center_z, px, fade=1.0):
+    """ふつうの望遠鏡で見た系外惑星（どれだけ拡大しても1つの光の点）。fade は明るさの倍率。"""
     bpy.ops.mesh.primitive_uv_sphere_add(radius=3 * px, location=(0, 0, center_z))
     dot = bpy.context.active_object
     dot.name = "PlanetDot"
-    dot.data.materials.append(sc.emission_material("PlanetDotGlow", (0.8, 0.9, 1.0, 1), 8.0))
-    halo = sc.build_halo(3 * px, (0.6, 0.75, 1.0, 1), 0.8, 5.0, "PlanetDotHalo")
+    dot.data.materials.append(sc.emission_material("PlanetDotGlow", (0.8, 0.9, 1.0, 1), 8.0 * fade))
+    halo = sc.build_halo(3 * px, (0.6, 0.75, 1.0, 1), 0.8 * fade, 5.0, "PlanetDotHalo")
     halo.location.z = center_z
     return dot
 
 
-def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=122.0, lat_center_deg=32.0, strength=1.0):
+def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=122.0, lat_center_deg=32.0, strength=1.0,
+                       opacity=1.0):
     """惑星の像（イメージ）。画面の上で pixels×pixels の格子にそろえたモザイクにする。
 
     円盤の各点を、格子の中心に寄せてから球の向きに戻し、地球の画像を引く（正距円筒図）。
@@ -178,7 +201,7 @@ def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=122.0, la
     L.new(math_node('MULTIPLY', shade, strength), em.inputs['Strength'])
     tr = N.new('ShaderNodeBsdfTransparent')
     mix = N.new('ShaderNodeMixShader')
-    L.new(inside, mix.inputs['Fac'])
+    L.new(math_node('MULTIPLY', inside, opacity), mix.inputs['Fac'])
     L.new(tr.outputs[0], mix.inputs[1])
     L.new(em.outputs[0], mix.inputs[2])
     out = N.new('ShaderNodeOutputMaterial')
@@ -257,11 +280,13 @@ def _attach_to_camera(obj, cam):
     return obj
 
 
-def build_telescope_inset(cam, vfov_deg, center_px, radius_px, sun_radius_px, from_px):
+def build_telescope_inset(cam, vfov_deg, center_px, radius_px, sun_radius_px, from_px, grow=1.0, ring_alpha=1.0):
     """探査機の望遠鏡の視野（4bと同じ細い円）。中に太陽の円盤と光の輪を描き、from_px（太陽の点）から広がる線でつなぐ。
 
     1200AUでは太陽は約1.6秒角、輪は約2.4秒角で、目には点にしか見えない。口径1mの望遠鏡なら分けて見える（11-01）。
     カメラの前（カメラの座標で -Z に1）に貼るので、画面の画素でそのまま置ける。
+    grow: 0 で視野は太陽の点に重なって大きさ0、1 で決めた位置と大きさ（動画で点から視野がピュッと開く。1を少し超えてよい）。
+    ring_alpha: 光の輪の明るさ（視野が開いてから輪が灯る）。
     """
     k = math.tan(math.radians(vfov_deg) / 2) / (sc.RESOLUTION[1] / 2)  # 1px の長さ（カメラから1の距離で）
     w, h = sc.RESOLUTION
@@ -269,7 +294,18 @@ def build_telescope_inset(cam, vfov_deg, center_px, radius_px, sun_radius_px, fr
     def local(sx, sy, depth=1.0):
         return ((sx - w / 2) * k * depth, (h / 2 - sy) * k * depth, -depth)
 
-    cx, cy = center_px
+    # 点の脇に「太陽」（海王星の目印と同じ書き方。動画ではこの点から視野がピュッと開く: 11-01ユーザー）
+    fx, fy = from_px
+    label = sc.text_label("SunDotLabel", "太陽", 0, 0, 26 * k)
+    _attach_to_camera(label, cam)
+    label.location = local(fx + 22, fy, 0.999)
+    label.rotation_euler = (0, 0, 0)
+    if grow <= 0.01:
+        return
+
+    # 視野の中心は太陽の点から決めた位置へ移り、大きさは grow 倍
+    cx, cy = fx + (center_px[0] - fx) * grow, fy + (center_px[1] - fy) * grow
+    radius_px, sun_radius_px = radius_px * grow, sun_radius_px * grow
     # 視野の中は黒く塗り、後ろの星と探査機を隠す
     bpy.ops.mesh.primitive_circle_add(vertices=128, radius=radius_px * k * 1.01, fill_type='TRIFAN',
                                       location=local(cx, cy, 1.01))
@@ -283,7 +319,6 @@ def build_telescope_inset(cam, vfov_deg, center_px, radius_px, sun_radius_px, fr
                                   sc.emission_material("InsetViewfinderGlow", sc.RULER_COLOR, VIEWFINDER_STRENGTH),
                                   1.2 * k), cam)
     # 太陽の点から視野の円に接する2本の線（拡大していることを示す）
-    fx, fy = from_px
     d = math.hypot(cx - fx, cy - fy)
     base = math.atan2(cy - fy, cx - fx)
     spread = math.asin(radius_px / d)
@@ -292,16 +327,12 @@ def build_telescope_inset(cam, vfov_deg, center_px, radius_px, sun_radius_px, fr
     for side in (-1, 1):
         a = base + side * spread
         start = 14  # 太陽の点のにじみに重ならないよう少し離す
+        if tangent_len <= start:
+            continue
         _attach_to_camera(sc.polyline(f"InsetLeader_{side}",
                                       [local(fx + start * math.cos(a), fy + start * math.sin(a), 0.999),
                                        local(fx + tangent_len * math.cos(a), fy + tangent_len * math.sin(a), 0.999)],
                                       leader, 1.0 * k), cam)
-
-    # 点の脇に「太陽」（海王星の目印と同じ書き方。動画ではこの点から視野がピュッと開く: 11-01ユーザー）
-    label = sc.text_label("SunDotLabel", "太陽", 0, 0, 26 * k)
-    _attach_to_camera(label, cam)
-    label.location = local(fx + 22, fy, 0.999)
-    label.rotation_euler = (0, 0, 0)
 
     # 太陽の円盤（にじみは輪が埋もれないよう小さく）と光の輪
     sun_r = sun_radius_px * k
@@ -315,15 +346,17 @@ def build_telescope_inset(cam, vfov_deg, center_px, radius_px, sun_radius_px, fr
     _attach_to_camera(halo, cam)
     halo.location = local(cx, cy, 1.0 + sun_r * 1.5)
     halo.rotation_euler = (0, 0, 0)
+    if ring_alpha <= 0:
+        return
     ring_px = sun_radius_px * einstein_ring_ratio()
     ring = [local(cx + ring_px * math.cos(a), cy + ring_px * math.sin(a), 0.998)
             for a in (2 * math.pi * i / 240 for i in range(241))]
     _attach_to_camera(sc.polyline("EinsteinRing", ring, sc.emission_material("EinsteinRingGlow", RING_COLOR,
-                                                                              RING_STRENGTH), 2.5 * k), cam)
+                                                                              RING_STRENGTH * ring_alpha), 2.5 * k), cam)
 
 
 def build_probe_view(sun_from_top, probe_offset, vfov_deg, inset_center_px, inset_radius_px, inset_sun_radius_px,
-                     sun_distance=4000.0):
+                     inset_grow=1.0, ring_alpha=1.0, sun_distance=4000.0):
     """探査機の後ろ上から、太陽の方を見る。目で見た太陽は明るい点。円盤と輪は望遠鏡の視野の中に描く。
 
     太陽は +Y のずっと先。探査機は原点で +Y を向く。カメラは probe_offset（探査機から見た位置）に置き、
@@ -357,7 +390,7 @@ def build_probe_view(sun_from_top, probe_offset, vfov_deg, inset_center_px, inse
     halo.location = sun_loc + mathutils.Vector((0, 4 * px * 1.5, 0))
 
     build_telescope_inset(cam, vfov_deg, inset_center_px, inset_radius_px, inset_sun_radius_px,
-                          (w / 2, sun_from_top * h))
+                          (w / 2, sun_from_top * h), inset_grow, ring_alpha)
 
     # 探査機を太陽の光（筒の前から）と、弱い星明かり（カメラ側の左上から）で照らす
     build_probe(1.0)

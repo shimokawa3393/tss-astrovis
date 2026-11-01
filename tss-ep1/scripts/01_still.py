@@ -1,4 +1,4 @@
-"""カットの絵を静止画1枚にする（絵を確定させる段階。カメラワーク・アニメーションはまだ）。
+"""カットの絵を静止画1枚にする（絵を確定させる段階）。絵の配置は state.LAYOUTS、組み立ては build.build_frame。
 
 実行:
   /Applications/Blender.app/Contents/MacOS/Blender --background --python tss-ep1/scripts/01_still.py -- <絵> [解像度%]
@@ -13,42 +13,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import bpy
 
-import props
 import scene as sc
-
-VFOV_DEG = 30
-
-# anchor_au が画面の上から anchor_from_top の位置に来る。view_h_bu は画面の高さ（BU）。
-# 軸方向も横方向も同じ倍率で写すので、見かけの曲がり角はカットによらない。
-# sun_radius_px を指定すると太陽をその大きさの記号にする（省くと一番内側の光線に接する大きさ）。
-_3B = dict(view_h_bu=sc.bu(200), anchor_from_top=0.55,
-           # 548AUの時点で画面に入るのは b < 約1.12R の光線だけなので、縁の近くを細かく拾う
-           b_ratios=[1 + 0.02 * i for i in range(7)], show_line=True,
-           sun_radius_px=45, ruler_au=800, neptune=True)
-LAYOUTS = {
-    # 太陽〜5000AU を画面の上12%〜下85%に入れる（00_scale_check.py と同じ配置）
-    "3a": dict(anchor_au=0, anchor_from_top=0.12, view_h_bu=sc.bu(5000) / (0.85 - 0.12),
-               b_ratios=sc.B_RATIOS, show_line=True),
-    # 太陽の近くに寄る。光線は間引いて、太陽に近いほど大きく曲がるのを見せる。
-    # 一番内側の光線は画面の下の方で軸に近づく（「レンズのように1点に集まりそう」と思わせ、3aでくつがえす）
-    "2a": dict(anchor_au=0, anchor_from_top=0.45, view_h_bu=sc.SUN_RADIUS_BU / 170 * sc.RESOLUTION[1],
-               b_ratios=[1.0, 1.5, 2.0, 2.5, 3.0], show_line=False),
-    # 3b: 軸に沿って下る。窓は200AU、いまの深さは画面の上から55%の高さ
-    "3b_start": dict(_3B, anchor_au=0),
-    "3b_neptune": dict(_3B, anchor_au=30.1),
-    "3b": dict(_3B, anchor_au=548),
-    # 1a: レンズの中心を2aの太陽と同じ高さ（上から45%）に置き、集まる点も2aの一番内側の光が軸に近づく高さ（80%）にそろえる
-    "1a": dict(kind="lens", anchor_au=0, anchor_from_top=0.45, view_h_bu=19.2),
-    # 4b: 望遠鏡の視野（中心は上から60%、テロップは上の帯）。前半は光の点、後半はモザイクの像
-    "4b_dot": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=0),
-    "4b_mid": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=24),
-    "4b": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=1000),
-    # 4a: 1200AUの探査機の後ろ上から太陽を見る。目で見た太陽は点（上から55%）、探査機は右下。
-    # 太陽の円盤と光の輪（半径は太陽の1.48倍）は、上の望遠鏡の視野の中に描く
-    "4a": dict(kind="probe", anchor_au=0, anchor_from_top=0.5, view_h_bu=19.2, sun_from_top=0.55,
-               probe_offset=(-2.0, -16.0, 5.1), vfov_deg=60, inset_center_px=(540, 634), inset_radius_px=210,
-               inset_sun_radius_px=80),
-}
+from build import build_frame
+from state import LAYOUTS
 
 
 def main():
@@ -57,45 +24,11 @@ def main():
     percentage = int(args[1]) if len(args) > 1 else 100
     layout = LAYOUTS[name]
 
-    view_h = layout["view_h_bu"]
-    top_z = -sc.bu(layout["anchor_au"]) + layout["anchor_from_top"] * view_h
-    bottom_z = top_z - view_h
-    px = view_h / sc.RESOLUTION[1]
-    margin = 10 * px
-
-    sc.clear_scene()
-    kind = layout.get("kind", "rays")
-    sun_r = None
-    if kind == "probe":
-        props.build_probe_view(layout["sun_from_top"], layout["probe_offset"], layout["vfov_deg"],
-                               layout["inset_center_px"], layout["inset_radius_px"], layout["inset_sun_radius_px"])
-    elif kind == "lens":
-        props.build_lens_scene(px, top_z + margin, bottom_z - margin, half_width_px=460, thickness_px=80,
-                               ray_x_px=[80, 160, 240, 320, 400], focus_px=0.35 * sc.RESOLUTION[1], fade_px=300)
-    elif kind == "planet":
-        props.build_viewfinder(0, 380, px)
-        if layout["pixels"]:
-            props.build_planet_image(0, 330, layout["pixels"], px)
-        else:
-            props.build_unresolved_dot(0, px)
-    else:
-        sun_r = layout["sun_radius_px"] * px if "sun_radius_px" in layout else None
-        sc.build_sun(sun_r)
-        sc.build_rays(max(top_z, 0) + margin, bottom_z - margin, 0.9 * px, layout["b_ratios"])
-        sc.build_axis_and_line(top_z + margin, bottom_z - margin, 0.8 * px, 2.5 * px, layout["show_line"])
-        if "ruler_au" in layout:
-            sc.build_ruler(layout["ruler_au"], px)
-        if layout.get("neptune"):
-            sc.build_neptune(20 * px, -150 * px, 26 * px)
-    if kind != "probe":
-        sc.build_camera(top_z - view_h / 2, view_h, VFOV_DEG)
-
-    scene = bpy.context.scene
-    sc.setup_render(scene, percentage)
-    print(f"[{name}] 1px={px * sc.AXIAL_AU_PER_BU:.3f}AU 太陽の円の半径={(sun_r or sc.SUN_DRAW_RADIUS_BU) / px:.0f}px "
-          f"見かけの曲がり角 b=R {sc.apparent_angle_deg(1):.1f}° b=3R {sc.apparent_angle_deg(3):.1f}°")
+    log = build_frame(layout, percentage)
+    print(f"[{name}] {log}")
 
     out = os.path.join(sc.EP_DIR, "stillcheck", f"still_{name}.png")
+    scene = bpy.context.scene
     scene.render.filepath = out
     t = time.time()
     bpy.ops.render.render(write_still=True)

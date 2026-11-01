@@ -132,13 +132,13 @@ def z_ramp_material(name, color, z_from, z_to, strength_from, strength_to, opaci
     return mat
 
 
-def sun_material():
+def sun_material(fade=1.0):
     mat, nt = new_material("SunSurface")
     out = nt.nodes.new('ShaderNodeOutputMaterial')
     em = nt.nodes.new('ShaderNodeEmission')
     tex = nt.nodes.new('ShaderNodeTexImage')
     tex.image = bpy.data.images.load(SUN_TEXTURE, check_existing=True)
-    em.inputs['Strength'].default_value = SUN_STRENGTH
+    em.inputs['Strength'].default_value = SUN_STRENGTH * fade
     # 中心が明るい黄色、縁が濃いオレンジ（カメラに向く度合いで混ぜる）
     facing = nt.nodes.new('ShaderNodeLayerWeight')
     facing.inputs['Blend'].default_value = 0.5
@@ -177,14 +177,24 @@ def polyline(name, points, material, width_bu):
     return obj
 
 
-def build_rays(top_z, bottom_z, width_bu, b_ratios=B_RATIOS):
-    """上から平行に来て太陽の脇で曲がり、焦点で軸と交わる光線。交わった先は薄れて消える（形は ray_x）。"""
+def build_rays(top_z, bottom_z, width_bu, b_ratios=B_RATIOS, alphas=None, fronts=None):
+    """上から平行に来て太陽の脇で曲がり、焦点で軸と交わる光線。交わった先は薄れて消える（形は ray_x）。
+
+    alphas: 光線ごとの不透明度（消えていく光線）。fronts: 光線ごとの、描く一番下の深さ [BU]（上から伸びていく光線）。
+    """
     rays = []
     for i, b_ratio in enumerate(b_ratios):
+        alpha = alphas[i] if alphas else 1.0
+        front = fronts[i] if fronts else None
+        if alpha <= 0 or (front is not None and front <= -top_z):
+            continue
         x0 = ray_lateral_bu(b_ratio)
         f = ray_focus_bu(b_ratio)
-        fade = z_ramp_material(f"RayFade_{i:02d}", RAY_COLOR, -f, -f - bu(RAY_FADE_AU), RAY_STRENGTH, RAY_STRENGTH, 1.0, 0.0)
+        fade = z_ramp_material(f"RayFade_{i:02d}", RAY_COLOR, -f, -f - bu(RAY_FADE_AU), RAY_STRENGTH, RAY_STRENGTH,
+                               alpha, 0.0)
         end_depth = min(-bottom_z, f + bu(RAY_FADE_AU))
+        if front is not None:
+            end_depth = min(end_depth, front)
         # 太陽の脇のカーブは細かく、あとは焦点・終点まで
         depths = [-top_z] + [x0 * (i / 20 - 1) * 4 for i in range(41)] + [f, end_depth]
         depths = sorted(d for d in set(depths) if -top_z <= d <= end_depth)
@@ -194,27 +204,32 @@ def build_rays(top_z, bottom_z, width_bu, b_ratios=B_RATIOS):
     return rays
 
 
-def build_axis_and_line(top_z, bottom_z, axis_width_bu, line_width_bu, show_line=True):
+def build_axis_and_line(top_z, bottom_z, axis_width_bu, line_width_bu, show_line=True, line_end_z=None):
+    """軸と焦線。line_end_z を渡すと、焦線はそこまで（光線が1本ずつ増えて、線が下へ伸びていくとき）。"""
     axis = polyline("Axis", [(0, 0, top_z), (0, 0, bottom_z)],
                     emission_material("AxisGlow", RAY_COLOR, AXIS_STRENGTH), axis_width_bu)
     if not show_line:
         return axis, None
     f1, f3 = ray_focus_bu(B_RATIOS[0]), ray_focus_bu(B_RATIOS[-1])
+    end_z = bottom_z if line_end_z is None else max(bottom_z, line_end_z)
+    if end_z >= -f1:
+        return axis, None
     line_mat = z_ramp_material("FocalLineGlow", RAY_COLOR, -f1, -f3, *LINE_STRENGTH)
-    line = polyline("FocalLine", [(0, -0.5, -f1), (0, -0.5, bottom_z)], line_mat, line_width_bu)
+    line = polyline("FocalLine", [(0, -0.5, -f1), (0, -0.5, end_z)], line_mat, line_width_bu)
     return axis, line
 
 
-def build_sun(radius=None):
-    """radius を省くと、一番内側の光線に接する大きさ（2a・3a）。3b は光線が太陽の近くに出ないので小さな記号にする。"""
+def build_sun(radius=None, fade=1.0):
+    """radius を省くと、一番内側の光線に接する大きさ（2a・3a）。3b は光線が太陽の近くに出ないので小さな記号にする。
+    fade は明るさの倍率（2aの頭で暗闇から現れる）。"""
     radius = radius or SUN_DRAW_RADIUS_BU
     bpy.ops.mesh.primitive_uv_sphere_add(radius=radius, location=(0, 0, 0), segments=64, ring_count=32)
     sun = bpy.context.active_object
     sun.name = "Sun"
     bpy.ops.object.shade_smooth()  # プリミティブはフラットシェーディング（Rikenomics 第5章）
     sun.rotation_euler = (math.radians(20), 0, math.radians(35))
-    sun.data.materials.append(sun_material())
-    build_halo(radius)
+    sun.data.materials.append(sun_material(fade))
+    build_halo(radius, strength=HALO_STRENGTH * fade)
     return sun
 
 
