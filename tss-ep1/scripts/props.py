@@ -251,35 +251,84 @@ def build_probe(scale):
     return parts
 
 
-def build_ring(center, radius, width, view_dir):
-    """太陽のまわりの細い光の輪。カメラから見た面（view_dir に垂直）に置く。"""
-    pts = []
-    up = (0, 0, 1)
-    vx = (view_dir[1] * up[2] - view_dir[2] * up[1], view_dir[2] * up[0] - view_dir[0] * up[2],
-          view_dir[0] * up[1] - view_dir[1] * up[0])
-    n = math.sqrt(sum(c * c for c in vx))
-    vx = tuple(c / n for c in vx)
-    vz = (vx[1] * view_dir[2] - vx[2] * view_dir[1], vx[2] * view_dir[0] - vx[0] * view_dir[2],
-          vx[0] * view_dir[1] - vx[1] * view_dir[0])
-    for i in range(241):
-        a = 2 * math.pi * i / 240
-        pts.append(tuple(center[k] + radius * (math.cos(a) * vx[k] + math.sin(a) * vz[k]) for k in range(3)))
-    return sc.polyline("EinsteinRing", pts, sc.emission_material("EinsteinRingGlow", RING_COLOR, RING_STRENGTH), width)
+def _attach_to_camera(obj, cam):
+    obj.parent = cam
+    obj.matrix_parent_inverse.identity()
+    return obj
 
 
-def build_probe_view(sun_radius_px, sun_from_top, probe_offset, vfov_deg, sun_distance=4000.0):
-    """探査機の後ろ上から、太陽の方を見る（太陽は遠く、画面では記号の大きさ）。
+def build_telescope_inset(cam, vfov_deg, center_px, radius_px, sun_radius_px, from_px):
+    """探査機の望遠鏡の視野（4bと同じ細い円）。中に太陽の円盤と光の輪を描き、from_px（太陽の点）から広がる線でつなぐ。
+
+    1200AUでは太陽は約1.6秒角、輪は約2.4秒角で、目には点にしか見えない。口径1mの望遠鏡なら分けて見える（11-01）。
+    カメラの前（カメラの座標で -Z に1）に貼るので、画面の画素でそのまま置ける。
+    """
+    k = math.tan(math.radians(vfov_deg) / 2) / (sc.RESOLUTION[1] / 2)  # 1px の長さ（カメラから1の距離で）
+    w, h = sc.RESOLUTION
+
+    def local(sx, sy, depth=1.0):
+        return ((sx - w / 2) * k * depth, (h / 2 - sy) * k * depth, -depth)
+
+    cx, cy = center_px
+    # 視野の中は黒く塗り、後ろの星と探査機を隠す
+    bpy.ops.mesh.primitive_circle_add(vertices=128, radius=radius_px * k * 1.01, fill_type='TRIFAN',
+                                      location=local(cx, cy, 1.01))
+    backing = _attach_to_camera(bpy.context.active_object, cam)
+    backing.name = "InsetBacking"
+    backing.data.materials.append(sc.emission_material("InsetBackingBlack", (0, 0, 0, 1), 0.0))
+
+    circle = [local(cx + radius_px * math.cos(a), cy + radius_px * math.sin(a), 0.999)
+              for a in (2 * math.pi * i / 180 for i in range(181))]
+    _attach_to_camera(sc.polyline("InsetViewfinder", circle,
+                                  sc.emission_material("InsetViewfinderGlow", sc.RULER_COLOR, VIEWFINDER_STRENGTH),
+                                  1.2 * k), cam)
+    # 太陽の点から視野の円に接する2本の線（拡大していることを示す）
+    fx, fy = from_px
+    d = math.hypot(cx - fx, cy - fy)
+    base = math.atan2(cy - fy, cx - fx)
+    spread = math.asin(radius_px / d)
+    leader = sc.emission_material("InsetLeaderGlow", sc.RULER_COLOR, VIEWFINDER_STRENGTH * 0.6)
+    tangent_len = math.sqrt(d * d - radius_px * radius_px)
+    for side in (-1, 1):
+        a = base + side * spread
+        start = 14  # 太陽の点のにじみに重ならないよう少し離す
+        _attach_to_camera(sc.polyline(f"InsetLeader_{side}",
+                                      [local(fx + start * math.cos(a), fy + start * math.sin(a), 0.999),
+                                       local(fx + tangent_len * math.cos(a), fy + tangent_len * math.sin(a), 0.999)],
+                                      leader, 1.0 * k), cam)
+
+    # 太陽の円盤（にじみは輪が埋もれないよう小さく）と光の輪
+    sun_r = sun_radius_px * k
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=sun_r, location=local(cx, cy, 1.0), segments=64, ring_count=32)
+    sun = _attach_to_camera(bpy.context.active_object, cam)
+    sun.name = "InsetSun"
+    bpy.ops.object.shade_smooth()
+    sun.rotation_euler = (math.radians(20), 0, math.radians(35))
+    sun.data.materials.append(sc.sun_material())
+    halo = sc.build_halo(sun_r, extent=0.6, strength=0.5, name="InsetSunHalo")
+    _attach_to_camera(halo, cam)
+    halo.location = local(cx, cy, 1.0 + sun_r * 1.5)
+    halo.rotation_euler = (0, 0, 0)
+    ring_px = sun_radius_px * einstein_ring_ratio()
+    ring = [local(cx + ring_px * math.cos(a), cy + ring_px * math.sin(a), 0.998)
+            for a in (2 * math.pi * i / 240 for i in range(241))]
+    _attach_to_camera(sc.polyline("EinsteinRing", ring, sc.emission_material("EinsteinRingGlow", RING_COLOR,
+                                                                              RING_STRENGTH), 2.5 * k), cam)
+
+
+def build_probe_view(sun_from_top, probe_offset, vfov_deg, inset_center_px, inset_radius_px, inset_sun_radius_px,
+                     sun_distance=4000.0):
+    """探査機の後ろ上から、太陽の方を見る。目で見た太陽は明るい点。円盤と輪は望遠鏡の視野の中に描く。
 
     太陽は +Y のずっと先。探査機は原点で +Y を向く。カメラは probe_offset（探査機から見た位置）に置き、
-    太陽が画面の上から sun_from_top、横は中央に来るよう、太陽の方向から下へ傾ける。
+    太陽が画面の上から sun_from_top、横は中央に来るよう、太陽の方向から傾ける。
     """
     import mathutils
-    res_h = sc.RESOLUTION[1]
+    w, h = sc.RESOLUTION
     tan_half = math.tan(math.radians(vfov_deg) / 2)
     cam_loc = mathutils.Vector(probe_offset)
     sun_loc = mathutils.Vector((cam_loc.x, sun_distance, cam_loc.z))  # 太陽はカメラの真正面の方向（横は中央）
-    # 太陽を画面の中心より上に置く分だけ、カメラを下へ傾ける
-    pitch = math.atan((0.5 - sun_from_top) * 2 * tan_half)
+    pitch = math.atan((0.5 - sun_from_top) * 2 * tan_half)  # 正なら太陽が中心より上（カメラを下へ傾ける）
     cam_data = bpy.data.cameras.new("Camera")
     cam_data.sensor_fit = 'VERTICAL'
     cam_data.angle = math.radians(vfov_deg)
@@ -291,17 +340,18 @@ def build_probe_view(sun_radius_px, sun_from_top, probe_offset, vfov_deg, sun_di
     cam.rotation_euler = (math.radians(90) - pitch, 0, 0)
     bpy.context.scene.camera = cam
 
-    # 太陽（記号の大きさ）: 画面で sun_radius_px になる半径
+    # 目で見た太陽: 明るい点とにじみ（1200AUでは約1.6秒角、約-11等）
     dist = (sun_loc - cam_loc).length
-    sun_r = dist * sun_radius_px / (res_h / 2) * tan_half
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=sun_r, location=sun_loc, segments=64, ring_count=32)
-    sun = bpy.context.active_object
-    sun.name = "Sun"
-    bpy.ops.object.shade_smooth()
-    sun.data.materials.append(sc.sun_material())
-    halo = sc.build_halo(sun_r, extent=0.6, strength=0.5)
-    halo.location = sun_loc + mathutils.Vector((0, sun_r * 1.5, 0))
-    ring = build_ring(tuple(sun_loc), sun_r * einstein_ring_ratio(), sun_r * 0.035, (0, 1, 0))
+    px = dist * tan_half / (h / 2)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=4 * px, location=sun_loc)
+    dot = bpy.context.active_object
+    dot.name = "SunDot"
+    dot.data.materials.append(sc.emission_material("SunDotGlow", FOCUS_GLOW_COLOR, 20.0))
+    halo = sc.build_halo(4 * px, FOCUS_GLOW_COLOR, 1.5, 8.0, "SunDotHalo")
+    halo.location = sun_loc + mathutils.Vector((0, 4 * px * 1.5, 0))
+
+    build_telescope_inset(cam, vfov_deg, inset_center_px, inset_radius_px, inset_sun_radius_px,
+                          (w / 2, sun_from_top * h))
 
     # 探査機を太陽の光（筒の前から）と、弱い星明かり（カメラ側の左上から）で照らす
     build_probe(1.0)
@@ -316,4 +366,4 @@ def build_probe_view(sun_radius_px, sun_from_top, probe_offset, vfov_deg, sun_di
     fill_obj = bpy.data.objects.new("FillLight", fill)
     bpy.context.collection.objects.link(fill_obj)
     fill_obj.rotation_euler = (math.radians(60), 0, math.radians(-30))
-    return cam, sun, ring
+    return cam

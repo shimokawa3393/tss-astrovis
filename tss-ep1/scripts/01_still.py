@@ -43,8 +43,11 @@ LAYOUTS = {
     "4b_dot": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=0),
     "4b_mid": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=24),
     "4b": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=1000),
-    # 4a: 1200AUの探査機の後ろ上から太陽を見る。太陽は上から38%、探査機は下の方。輪の半径は太陽の1.48倍（1200AUでの値）
-    "4a": dict(kind="probe", anchor_au=0, anchor_from_top=0.5, view_h_bu=19.2, sun_radius_px=70, sun_from_top=0.38, probe_offset=(-2.0, -16.0, 6.5), vfov_deg=60),
+    # 4a: 1200AUの探査機の後ろ上から太陽を見る。目で見た太陽は点（上から55%）、探査機は右下。
+    # 太陽の円盤と光の輪（半径は太陽の1.48倍）は、上の望遠鏡の視野の中に描く
+    "4a": dict(kind="probe", anchor_au=0, anchor_from_top=0.5, view_h_bu=19.2, sun_from_top=0.55,
+               probe_offset=(-2.0, -16.0, 5.1), vfov_deg=60, inset_center_px=(540, 634), inset_radius_px=210,
+               inset_sun_radius_px=80),
 }
 
 
@@ -64,8 +67,8 @@ def main():
     kind = layout.get("kind", "rays")
     sun_r = None
     if kind == "probe":
-        props.build_probe_view(layout["sun_radius_px"], layout["sun_from_top"], layout["probe_offset"],
-                               layout["vfov_deg"])
+        props.build_probe_view(layout["sun_from_top"], layout["probe_offset"], layout["vfov_deg"],
+                               layout["inset_center_px"], layout["inset_radius_px"], layout["inset_sun_radius_px"])
     elif kind == "lens":
         props.build_lens_scene(px, top_z + margin, bottom_z - margin, half_width_px=460, thickness_px=80,
                                ray_x_px=[80, 160, 240, 320, 400], focus_px=0.35 * sc.RESOLUTION[1], fade_px=300)
