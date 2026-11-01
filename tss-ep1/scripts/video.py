@@ -29,7 +29,8 @@ TELOP_TOP = 0.89  # 1行目の中心の高さ（下から）。上から約11%�
 TELOP_LINE = 1.35  # 行の間隔（文字の大きさの倍数）
 TELOP_FADE = 0.4  # 秒（ユーザーの好み）
 TELOP_STEP = 0.25  # 秒。2行目以降が遅れて出る（ステップフェード）
-NAME_CUT = None  # 名前だけ画面の真ん中に出すカット（4cを暗転にしていた頃は "4c"）
+NAME_CUT = "4c"  # 名前だけ画面の真ん中に、少し大きく出す（説明のテロップと区別して、名前の発表にする）
+NAME_SCALE = 1.2
 IMAGE_NOTE = dict(cut="4b", text="※イメージ", size=30, location=(0.06, 0.24))  # 惑星の像はイメージ（隅に表記）
 EP_DIR = sc.EP_DIR
 OUTPUT = os.path.join(EP_DIR, "mp4", "TSS_Episode01_SGL.mp4")
@@ -98,12 +99,13 @@ def main():
     for c in CUTS:
         for i, (t0, t1, lines) in enumerate(c["telops"]):
             centered = c["id"] == NAME_CUT
-            top = 0.5 + (len(lines) - 1) / 2 * TELOP_SIZE * TELOP_LINE / sc.RESOLUTION[1] if centered else TELOP_TOP
+            size = TELOP_SIZE * (NAME_SCALE if centered else 1.0)
+            top = 0.5 + (len(lines) - 1) / 2 * size * TELOP_LINE / sc.RESOLUTION[1] if centered else TELOP_TOP
             for j, line in enumerate(lines):
                 f0 = to_out(c["start"] + t0 + int(j * TELOP_STEP * FPS))
                 f1 = to_out(c["start"] + t1)
-                y = top - j * TELOP_SIZE * TELOP_LINE / sc.RESOLUTION[1]
-                strip = text_strip(editor, f"Telop_{c['id']}_{i}_{j}", channel, f0, f1 - f0, line, TELOP_SIZE * scale,
+                y = top - j * size * TELOP_LINE / sc.RESOLUTION[1]
+                strip = text_strip(editor, f"Telop_{c['id']}_{i}_{j}", channel, f0, f1 - f0, line, size * scale,
                                    (0.5, y))
                 fade(strip, f0, f1, fade_frames)
                 channel += 1
