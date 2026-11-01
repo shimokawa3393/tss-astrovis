@@ -12,7 +12,17 @@ import bpy
 
 import scene as sc
 
-EARTH_TEXTURE = os.path.join(sc.TEXTURE_DIR, "2k_earth_daymap.jpg")  # Solar System Scope（CC BY 4.0）
+# 4bの架空の惑星（build_planet_image）。ノイズは (大きさ, 細かさ, 粗さ, 模様をずらす量)
+PLANET_LAND_NOISE = (1.6, 8.0, 0.6, (3.1, -7.4, 5.2))
+PLANET_GROUND_STOPS = [  # 高さ → 色
+    (0.00, (0.005, 0.02, 0.05)), (0.47, (0.01, 0.08, 0.12)),  # 深い海 → 浅い海（暗い青緑）
+    (0.50, (0.22, 0.12, 0.06)), (0.58, (0.34, 0.14, 0.06)),  # 海岸 → 赤茶の陸
+    (0.68, (0.42, 0.28, 0.14)), (1.00, (0.55, 0.47, 0.36)),  # 黄土の高地
+]
+PLANET_ICE_FROM = (0.92, 0.96)  # 緯度（向きのZの絶対値）がこの間で氷になる
+PLANET_CLOUD_NOISE = (3.0, 6.0, 0.55, (-2.3, 4.8, 1.7))
+PLANET_CLOUD_FROM = (0.52, 0.68)
+PLANET_CLOUD_OPACITY = 0.75
 
 LENS_EDGE_COLOR = (0.7, 0.9, 1.0, 1)
 LENS_EDGE_STRENGTH = 1.4
@@ -179,13 +189,13 @@ def build_unresolved_dot(center_z, px, fade=1.0):
     return dot
 
 
-def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=122.0, lat_center_deg=32.0, strength=1.0,
-                       opacity=1.0):
-    """惑星の像（イメージ）。画面の上で pixels×pixels の格子にそろえたモザイクにする。
+def build_planet_image(center_z, radius_px, pixels, px, lat_center_deg=25.0, strength=1.0, opacity=1.0):
+    """架空の系外惑星の像（イメージ）。画面の上で pixels×pixels の格子にそろえたモザイクにする。
 
-    円盤の各点を、格子の中心に寄せてから球の向きに戻し、地球の画像を引く（正距円筒図）。
-    照らす向きはカメラ側の左上から（満ち欠けを少し付けて球に見せる）。
-    正面に来るのは (lat_center_deg, lon_center_deg)。既定は日本を少し右に置く向き（10-25ユーザー「日本中心に」→「日本がちょい右にズレてる感じで」）。
+    円盤の各点を、格子の中心に寄せてから球の向きに戻し、その向きのノイズで海・大陸・雲・極の氷を描く（地図の画像は使わない）。
+    最初は地球の画像（日本を正面に）だったが、11-01ユーザー「地球以外って描写できる？未知の惑星感を出したい」。
+    海と大陸があるので「大陸まで見える」はそのまま言える。論文（Turyshev & Toth 2022）は地球の画像で試算している（投稿文に）。
+    照らす向きはカメラ側の左上から（満ち欠けを少し付けて球に見せる）。lat_center_deg は北極側へ傾ける角度（氷を見せる）。
     """
     rp = radius_px * px
     bpy.ops.mesh.primitive_circle_add(vertices=128, radius=rp, fill_type='TRIFAN', location=(0, 0, center_z),
@@ -228,21 +238,62 @@ def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=122.0, la
     ny = math_node('SQRT', math_node('MAXIMUM', math_node('SUBTRACT', 1.0, r2), 0.0))
     inside = math_node('LESS_THAN', r2, 1.0)
 
-    # 画面の正面が緯度 lat_center_deg になるよう、X軸まわりに傾けてから緯度・経度を取る
+    # 北極側へ lat_center_deg 傾けた、球の上の向き (nx, ny_r, nz_r)
     c, s_ = math.cos(math.radians(lat_center_deg)), math.sin(math.radians(lat_center_deg))
     nz_r = math_node('ADD', math_node('MULTIPLY', nz, c), math_node('MULTIPLY', ny, s_))
     ny_r = math_node('SUBTRACT', math_node('MULTIPLY', ny, c), math_node('MULTIPLY', nz, s_))
-    lon = math_node('ADD', math_node('ARCTAN2', nx, ny_r), math.radians(lon_center_deg))
-    u = math_node('ADD', math_node('DIVIDE', lon, 2 * math.pi), 0.5)
-    v = math_node('ADD', math_node('DIVIDE', math_node('ARCSINE', math_node('MINIMUM', nz_r, 1.0)), math.pi), 0.5)
-    uv = N.new('ShaderNodeCombineXYZ')
-    L.new(u, uv.inputs['X'])
-    L.new(v, uv.inputs['Y'])
-    tex = N.new('ShaderNodeTexImage')
-    tex.image = bpy.data.images.load(EARTH_TEXTURE, check_existing=True)
-    tex.extension = 'REPEAT'
-    tex.interpolation = 'Closest'
-    L.new(uv.outputs[0], tex.inputs['Vector'])
+    vec = N.new('ShaderNodeCombineXYZ')
+    for k, v in zip('XYZ', (nx, ny_r, nz_r)):
+        L.new(v, vec.inputs[k])
+
+    def noise(vector, scale, detail, roughness, seed_offset):
+        tex = N.new('ShaderNodeTexNoise')
+        tex.noise_dimensions = '3D'
+        tex.inputs['Scale'].default_value = scale
+        tex.inputs['Detail'].default_value = detail
+        tex.inputs['Roughness'].default_value = roughness
+        moved = N.new('ShaderNodeVectorMath')
+        moved.operation = 'ADD'
+        moved.inputs[1].default_value = seed_offset  # 模様を選ぶ（ずらす量で別の大陸になる）
+        L.new(vector, moved.inputs[0])
+        L.new(moved.outputs[0], tex.inputs['Vector'])
+        return tex.outputs['Fac']
+
+    def ramp(fac, stops):
+        node = N.new('ShaderNodeValToRGB')
+        cr = node.color_ramp
+        while len(cr.elements) < len(stops):
+            cr.elements.new(0.5)
+        for el, (pos, col) in zip(cr.elements, stops):
+            el.position, el.color = pos, (*col, 1)
+        L.new(fac, node.inputs['Fac'])
+        return node.outputs['Color']
+
+    # 海と大陸（高さのノイズ）。陸は赤茶と黄土、海は深い青緑（地球と違う色にして「知らない星」に見せる）
+    height = noise(vec.outputs[0], *PLANET_LAND_NOISE)
+    ground = ramp(height, PLANET_GROUND_STOPS)
+    # 極の氷
+    ice = N.new('ShaderNodeMapRange')
+    ice.inputs['From Min'].default_value, ice.inputs['From Max'].default_value = PLANET_ICE_FROM
+    L.new(math_node('ABSOLUTE', nz_r), ice.inputs['Value'])
+    color = N.new('ShaderNodeMix')
+    color.data_type = 'RGBA'
+    color.inputs['B'].default_value = (0.92, 0.95, 1.0, 1)
+    L.new(ice.outputs[0], color.inputs['Factor'])
+    L.new(ground, color.inputs['A'])
+    # 雲（横に流れる筋になるよう、向きを縦に引き伸ばしてからノイズ）
+    stretch = N.new('ShaderNodeVectorMath')
+    stretch.operation = 'MULTIPLY'
+    stretch.inputs[1].default_value = (1.0, 1.0, 2.5)
+    L.new(vec.outputs[0], stretch.inputs[0])
+    cloud_fac = N.new('ShaderNodeMapRange')
+    cloud_fac.inputs['From Min'].default_value, cloud_fac.inputs['From Max'].default_value = PLANET_CLOUD_FROM
+    L.new(noise(stretch.outputs[0], *PLANET_CLOUD_NOISE), cloud_fac.inputs['Value'])
+    clouds = N.new('ShaderNodeMix')
+    clouds.data_type = 'RGBA'
+    clouds.inputs['B'].default_value = (0.95, 0.95, 0.95, 1)
+    L.new(math_node('MULTIPLY', cloud_fac.outputs[0], PLANET_CLOUD_OPACITY), clouds.inputs['Factor'])
+    L.new(color.outputs['Result'], clouds.inputs['A'])
 
     # 照らす向き（画面の左上・手前から）
     lx, ly, lz = -0.2, 0.8, 0.45
@@ -252,7 +303,7 @@ def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=122.0, la
     shade = math_node('ADD', math_node('MAXIMUM', lit, 0.0), 0.04)
 
     em = N.new('ShaderNodeEmission')
-    L.new(tex.outputs['Color'], em.inputs['Color'])
+    L.new(clouds.outputs['Result'], em.inputs['Color'])
     L.new(math_node('MULTIPLY', shade, strength), em.inputs['Strength'])
     tr = N.new('ShaderNodeBsdfTransparent')
     mix = N.new('ShaderNodeMixShader')
