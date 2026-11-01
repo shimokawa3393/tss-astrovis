@@ -15,6 +15,7 @@ AU = 1.495978707e11      # 天文単位 [m]（IAU 2012）
 ARCSEC = math.pi / 180 / 3600
 
 NEPTUNE_AU = 30.1        # 目盛りの目印だけに使う（台本「使う数値と出典」）
+VOYAGER1_AU = 172.2      # 目印だけに使う。JPL Horizons（-31、太陽中心）2026-11-01 の値。1年に約3.6AU遠ざかる
 
 
 def deflection_angle(b):

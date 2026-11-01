@@ -18,7 +18,7 @@ from physics import R_SUN, focal_distance, to_au
 _3B = dict(view_h_bu=sc.bu(200), anchor_from_top=0.55,
            # 548AUの時点で画面に入るのは b < 約1.12R の光線だけなので、縁の近くを細かく拾う
            b_ratios=[1 + 0.02 * i for i in range(7)], show_line=True,
-           sun_radius_px=45, ruler_au=800, neptune=True)
+           sun_radius_px=45, ruler_au=800, neptune=True, voyager=True)
 LAYOUTS = {
     # 太陽〜5000AU を画面の上28%〜85%に入れる。最初は上12%（00_scale_check.py と同じ）だったが、
     # テロップ（上から約11%）が太陽に重なったので下げた（11-01）
@@ -48,17 +48,23 @@ LAYOUTS = {
 # ------------------------------------------------------------
 # 動き（カットの頭からのフレーム数 t）
 # ------------------------------------------------------------
-RAYS_GROW = (15, 75)  # 1a・2a: 平行な光が上から画面の下まで届く（全部の光線が同時に。光の波面）
-SUN_FADE_IN = (0, 15)  # 2a: レンズのあった所に太陽が現れる
+RAYS_GROW = (15, 75)  # 1a: 平行な光が上から画面の下まで届く（全部の光線が同時に。光の波面）
+LENS_RAYS_FADE_OUT = (160, 180)  # 1a: 終わりで光線が消え、レンズだけ残る
+LENS_FADE_OUT = (0, 16)  # 2a: レンズが薄れながら縮む（11-01「レンズと重力がピンとこない」）
+SUN_FADE_IN = (6, 25)  # 2a: 同じ所に太陽が現れる。レンズより少し遅らせる（重なると土星の輪に見えた）
+RAYS_GROW_2A = (25, 85)  # 2a: 太陽の脇を通る光が上から伸びる
 ZOOM_OUT = (0, 75)  # 3a: 2aの寄りから3aの引きへ
 OTHERS_FADE_OUT = (0, 20)  # 3a: 2aの光線のうち一番内側（b=R）以外を消し、1本から始める
 ADD_RAY_FROM, ADD_RAY_EVERY, ADD_RAY_GROW = 75, 10, 15  # 3a: 内側から1本ずつ足す（伸びきるまで15フレーム）
-DESCENT_AU = 548  # 3b: 0AU → 548AU を一定速（1フレーム約2.3AU）
+DESCENT_AU = 548  # 3b: 0AU → 548AU を一定速（1フレーム約2.4AU）
+DESCENT = (45, 270)  # 3b: 頭は太陽で止めて「1AUは地球と太陽の距離」、終わりは548AUで止めて「548AUより先」
+DESCENT_EASE = 12  # 3b: 動き出しと止まりのなめらかさ（フレーム）。その間は一定速
 INSET_POP = (30, 46)  # 4a: 太陽の点から視野がピュッと開く
 RING_FADE_IN = (50, 70)  # 4a: 開いた視野の中で光の輪が灯る
 DOT_TO_IMAGE = (100, 110)  # 4b: 光の点が消え、粗いモザイクが現れる
 REFINE = (100, 180)  # 4b: モザイクが細かくなっていく（4 → 1000画素四方）
 REFINE_STEPS = [4, 8, 16, 32, 64, 128, 256, 512, 1000]
+RECAP_PULL = 1.08  # 4c: 3aの引きの絵を背景に、終わりまでにこの倍率だけゆっくり引く
 
 
 def _ramp(t, span):
@@ -74,6 +80,17 @@ def _ease_out_back(x, overshoot=1.6):
     """行きすぎて戻る（ピュッ）。"""
     x -= 1
     return 1 + x * x * ((overshoot + 1) * x + overshoot)
+
+
+def _cruise(x, e):
+    """0→1 を、動き出しと止まり（それぞれ全体の e）だけなめらかにし、間は一定速で進む。"""
+    if x < e:
+        p = x * x / (2 * e)
+    elif x < 1 - e:
+        p = x - e / 2
+    else:
+        p = (1 - e) - (1 - x) ** 2 / (2 * e)
+    return p / (1 - e)
 
 
 def _lerp(a, b, x):
@@ -96,16 +113,18 @@ def scene_state(frame, cut=None):
         s = dict(LAYOUTS["1a"])
         top_z, bottom_z = _screen(s)
         s["front_z"] = _lerp(top_z, bottom_z, _ramp(t, RAYS_GROW))
+        s["ray_alpha"] = 1 - _smooth(_ramp(t, LENS_RAYS_FADE_OUT))
     elif cut == "2a":
         s = dict(LAYOUTS["2a"])
         top_z, bottom_z = _screen(s)
-        s["sun_fade"] = _ramp(t, SUN_FADE_IN)
-        front = _lerp(-top_z, -bottom_z, _ramp(t, RAYS_GROW))
+        s["lens_alpha"] = 1 - _smooth(_ramp(t, LENS_FADE_OUT))
+        s["sun_fade"] = _smooth(_ramp(t, SUN_FADE_IN))
+        front = _lerp(-top_z, -bottom_z, _ramp(t, RAYS_GROW_2A))
         s["fronts"] = [front] * len(s["b_ratios"])
     elif cut == "3a":
         s = _state_3a(t)
     elif cut == "3b":
-        s = dict(LAYOUTS["3b"], anchor_au=DESCENT_AU * t / (c["end"] - c["start"]))
+        s = dict(LAYOUTS["3b"], anchor_au=DESCENT_AU * _cruise(_ramp(t, DESCENT), DESCENT_EASE / (DESCENT[1] - DESCENT[0])))
     elif cut == "4a":
         s = dict(LAYOUTS["4a"])
         x = _ramp(t, INSET_POP)
@@ -118,6 +137,11 @@ def scene_state(frame, cut=None):
         s["image_opacity"] = mix
         x = _ramp(t, REFINE)
         s["pixels"] = REFINE_STEPS[min(int(x * len(REFINE_STEPS)), len(REFINE_STEPS) - 1)] if mix > 0 else 0
+    elif cut == "4c":
+        # 名前の背景は3aの最後の絵（真っ暗だと名前が浮く: 11-01ユーザー「最後のテロップだけ真っ暗なのはどうだろう」）
+        s = _state_3a(CUT_BY_ID["3a"]["end"] - CUT_BY_ID["3a"]["start"])
+        x = _smooth(t / (c["end"] - c["start"]))
+        s["view_h_bu"] *= _lerp(1.0, RECAP_PULL, x)
     else:
         s = dict(kind="black")
     s["cut"], s["frame"], s["t"] = cut, frame, t
@@ -167,8 +191,8 @@ def _state_3a(t):
 
 if __name__ == "__main__":
     # bpy なしでは scene を import できないので、Blender の中で: Blender --background --python state.py
-    for f in (1, 60, 181, 250, 361, 400, 436, 500, 600, 601, 841, 880, 1021, 1150, 1230):
+    for f in (1, 60, 175, 181, 195, 250, 421, 500, 660, 661, 706, 800, 930, 990, 991, 1040, 1171, 1300, 1380):
         st = scene_state(f)
         print(f, {k: (round(v, 3) if isinstance(v, float) else v) for k, v in st.items()
                   if k in ("cut", "t", "anchor_au", "view_h_bu", "inset_grow", "ring_alpha", "pixels", "line_end_au",
-                           "sun_fade")})
+                           "sun_fade", "lens_alpha", "ray_alpha")})

@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import bpy
 
-from physics import NEPTUNE_AU, R_SUN, deflection_angle, focal_distance, to_au
+from physics import NEPTUNE_AU, R_SUN, VOYAGER1_AU, deflection_angle, focal_distance, to_au
 
 EP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEXTURE_DIR = os.path.join(EP_DIR, "textures")
@@ -154,7 +154,17 @@ def sun_material(fade=1.0):
     nt.links.new(limb.outputs['Result'], tint.inputs['B'])
     nt.links.new(tex.outputs['Color'], tint.inputs['A'])
     nt.links.new(tint.outputs['Result'], em.inputs['Color'])
-    nt.links.new(em.outputs[0], out.inputs[0])
+    if fade >= 1:
+        nt.links.new(em.outputs[0], out.inputs[0])
+        return mat
+    # 現れる途中は透かす（暗いだけだと黒い円が後ろのレンズと星を隠した）
+    mat.surface_render_method = 'BLENDED'
+    tr = nt.nodes.new('ShaderNodeBsdfTransparent')
+    mix = nt.nodes.new('ShaderNodeMixShader')
+    mix.inputs['Fac'].default_value = fade
+    nt.links.new(tr.outputs[0], mix.inputs[1])
+    nt.links.new(em.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs[0])
     return mat
 
 
@@ -322,6 +332,18 @@ def build_neptune(radius_bu, x_bu, label_size_bu):
     light_obj.rotation_euler = (math.radians(70), 0, 0)
     text_label("NeptuneLabel", "海王星", x_bu, -bu(NEPTUNE_AU) - radius_bu - label_size_bu, label_size_bu, 'CENTER')
     return planet
+
+
+def build_voyager(x_bu, px_bu):
+    """ボイジャー1号の距離の目印（人類が送った一番遠い探査機。約172AU）。海王星と同じく軸の脇に置き、名前だけ添える。
+    3bで「548AUはそのさらに3倍先」と距離感をつかむため（11-01ユーザー「1AUの距離感がわからない人がほとんど」）。"""
+    z = -bu(VOYAGER1_AU)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=4 * px_bu, location=(x_bu, -0.1, z))
+    dot = bpy.context.active_object
+    dot.name = "Voyager1"
+    dot.data.materials.append(emission_material("Voyager1Glow", (0.85, 0.92, 1.0, 1), 6.0))
+    text_label("Voyager1Label", "ボイジャー1号", x_bu, z - 30 * px_bu, 26 * px_bu, 'CENTER')
+    return dot
 
 
 # ------------------------------------------------------------

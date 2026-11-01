@@ -1,7 +1,7 @@
 """PNG連番とテロップを mp4 にまとめる（このマシンに ffmpeg は無いので Blender の VSE。ep4 の 04_encode_video.py と同じ方式）。
 
 テロップは cuts.py（文言とカット内のフレーム）。上から約11%に、行ごとに少しずつ遅れて出る（ステップフェード）。
-4c は連番なし（黒）に名前だけを画面の真ん中へ。4b の隅に「イメージ」。
+4b の隅に「イメージ」。
 
 実行:
   /Applications/Blender.app/Contents/MacOS/Blender --background --python tss-ep1/scripts/video.py -- [--draft | --preview]
@@ -29,7 +29,7 @@ TELOP_TOP = 0.89  # 1行目の中心の高さ（下から）。上から約11%�
 TELOP_LINE = 1.35  # 行の間隔（文字の大きさの倍数）
 TELOP_FADE = 0.4  # 秒（ユーザーの好み）
 TELOP_STEP = 0.25  # 秒。2行目以降が遅れて出る（ステップフェード）
-NAME_CUT = "4c"  # 名前だけは画面の真ん中に
+NAME_CUT = None  # 名前だけ画面の真ん中に出すカット（4cを暗転にしていた頃は "4c"）
 IMAGE_NOTE = dict(cut="4b", text="※イメージ", size=30, location=(0.06, 0.24))  # 惑星の像はイメージ（隅に表記）
 EP_DIR = sc.EP_DIR
 OUTPUT = os.path.join(EP_DIR, "mp4", "TSS_Episode01_SGL.mp4")

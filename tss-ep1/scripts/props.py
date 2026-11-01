@@ -66,23 +66,28 @@ def _clip_below(points, z_min):
     return out
 
 
-def build_lens_scene(px, top_z, bottom_z, half_width_px, thickness_px, ray_x_px, focus_px, fade_px, front_z=None):
+def build_lens_scene(px, top_z, bottom_z, half_width_px, thickness_px, ray_x_px, focus_px, fade_px, front_z=None,
+                     ray_alpha=1.0, lens_alpha=1.0):
     """凸レンズの断面（中心が原点）と、上から平行に来てレンズで折れ、1点に集まる光線。
 
     front_z を渡すと、光線はそこまで（上から伸びていく途中）。集まる点は光線が届いてから光る。
+    ray_alpha: 光線と集まる点の明るさ（1aの終わりで消える）。lens_alpha: レンズの明るさ（2aの頭で太陽と入れ替わる）。
     """
     w, t = half_width_px * px, thickness_px * px / 2
     xs = [w * (i / 40 - 1) for i in range(81)]
     outline = [(x, t * (1 - (x / w) ** 2)) for x in xs] + [(x, -t * (1 - (x / w) ** 2)) for x in reversed(xs)]
-    _filled_shape("LensFill", outline, translucent_emission("LensFillGlow", LENS_EDGE_COLOR, 0.25, LENS_FILL_OPACITY))
-    sc.polyline("LensEdge", [(x, -0.05, z) for x, z in outline + outline[:1]],
-                sc.emission_material("LensEdgeGlow", LENS_EDGE_COLOR, LENS_EDGE_STRENGTH), 1.2 * px)
+    if lens_alpha > 0:
+        _filled_shape("LensFill", outline, translucent_emission("LensFillGlow", LENS_EDGE_COLOR, 0.25,
+                                                                LENS_FILL_OPACITY * lens_alpha))
+        sc.polyline("LensEdge", [(x, -0.05, z) for x, z in outline + outline[:1]],
+                    translucent_emission("LensEdgeGlow", LENS_EDGE_COLOR, LENS_EDGE_STRENGTH, lens_alpha), 1.2 * px)
 
     f, fade = focus_px * px, fade_px * px
-    mat = sc.z_ramp_material("LensRayFade", sc.RAY_COLOR, -f, -f - fade, sc.RAY_STRENGTH, sc.RAY_STRENGTH, 1.0, 0.0)
+    mat = sc.z_ramp_material("LensRayFade", sc.RAY_COLOR, -f, -f - fade, sc.RAY_STRENGTH, sc.RAY_STRENGTH,
+                             ray_alpha, 0.0)
     end_depth = min(-bottom_z, f + fade)
     front_z = bottom_z if front_z is None else front_z
-    if front_z >= top_z:
+    if front_z >= top_z or ray_alpha <= 0:
         return
     for i, xp in enumerate(ray_x_px):
         for side in (-1, 1):
@@ -97,8 +102,8 @@ def build_lens_scene(px, top_z, bottom_z, half_width_px, thickness_px, ray_x_px,
     bpy.ops.mesh.primitive_uv_sphere_add(radius=4 * px, location=(0, -0.1, -f))
     dot = bpy.context.active_object
     dot.name = "FocusDot"
-    dot.data.materials.append(sc.emission_material("FocusDotGlow", FOCUS_GLOW_COLOR, 20.0))
-    halo = sc.build_halo(4 * px, FOCUS_GLOW_COLOR, 1.5, 6.0, "FocusHalo")
+    dot.data.materials.append(sc.emission_material("FocusDotGlow", FOCUS_GLOW_COLOR, 20.0 * ray_alpha))
+    halo = sc.build_halo(4 * px, FOCUS_GLOW_COLOR, 1.5 * ray_alpha, 6.0, "FocusHalo")
     halo.location.z = -f
 
 

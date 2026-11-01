@@ -15,6 +15,19 @@ import scene as sc
 VFOV_DEG = 30
 
 
+def _lens(px, top_z, bottom_z, front_z, ray_alpha, lens_alpha, shrink_to_px=None):
+    """1aのレンズ。2aの頭では、薄れながら太陽の幅まで縮み、太陽の後ろに入る（shrink_to_px）。
+    同じ大きさのまま薄れると、太陽に輪がかかって土星に見えた（11-01）。"""
+    half_width, thickness = 460, 80
+    if shrink_to_px is not None:
+        half_width = shrink_to_px + (half_width - shrink_to_px) * lens_alpha
+        thickness *= lens_alpha
+    props.build_lens_scene(px, top_z, bottom_z, half_width_px=half_width, thickness_px=thickness,
+                           ray_x_px=[80, 160, 240, 320, 400],
+                           focus_px=0.35 * sc.RESOLUTION[1], fade_px=300, front_z=front_z, ray_alpha=ray_alpha,
+                           lens_alpha=lens_alpha)
+
+
 def build_frame(s, percentage=100):
     """s を組んでカメラとレンダー設定まで済ませる。ログ用の1行を返す。"""
     sc.clear_scene()
@@ -38,9 +51,7 @@ def build_frame(s, percentage=100):
                                s.get("ring_alpha", 1.0))
         log = f"視野の開き={s.get('inset_grow', 1.0):.2f} 輪={s.get('ring_alpha', 1.0):.2f}"
     elif kind == "lens":
-        props.build_lens_scene(px, top_z + margin, bottom_z - margin, half_width_px=460, thickness_px=80,
-                               ray_x_px=[80, 160, 240, 320, 400], focus_px=0.35 * sc.RESOLUTION[1], fade_px=300,
-                               front_z=s.get("front_z"))
+        _lens(px, top_z + margin, bottom_z - margin, s.get("front_z"), s.get("ray_alpha", 1.0), 1.0)
     elif kind == "planet":
         props.build_viewfinder(0, 380, px)
         if s.get("dot_fade", 0 if s["pixels"] else 1) > 0:
@@ -50,6 +61,9 @@ def build_frame(s, percentage=100):
         log = f"画素={s['pixels']}"
     else:
         sun_r = s["sun_radius_px"] * px if "sun_radius_px" in s else None
+        if s.get("lens_alpha", 0) > 0:  # 2aの頭: 1aのレンズが同じ所で薄れていく
+            _lens(px, top_z + margin, bottom_z - margin, None, 0.0, s["lens_alpha"],
+                  0.8 * (sun_r or sc.SUN_DRAW_RADIUS_BU) / px)
         sc.build_sun(sun_r, s.get("sun_fade", 1.0))
         fronts = s.get("fronts")
         sc.build_rays(max(top_z, 0) + margin, bottom_z - margin, 0.9 * px, s["b_ratios"], s.get("alphas"), fronts)
@@ -59,6 +73,8 @@ def build_frame(s, percentage=100):
             sc.build_ruler(s["ruler_au"], px)
         if s.get("neptune"):
             sc.build_neptune(20 * px, -150 * px, 26 * px)
+        if s.get("voyager"):
+            sc.build_voyager(-150 * px, px)
         # 誇張の値（台本の「実物/模式化」と突き合わせる）
         log = (f"深さ={s['anchor_au']:.1f}AU 1px={px * sc.AXIAL_AU_PER_BU:.3f}AU "
                f"太陽の円の半径={(sun_r or sc.SUN_DRAW_RADIUS_BU) / px:.0f}px 横{sc.LATERAL_K:.0f}倍 "
