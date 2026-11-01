@@ -353,30 +353,118 @@ def _cylinder(name, radius, depth, location, material, rotation=(0, 0, 0), verti
     return obj
 
 
+def _foil(name, color):
+    """しわのある断熱材（金色の箔）。細かいノイズで面をでこぼこにして、光のむらを出す。"""
+    mat, nt = sc.new_material(name)
+    N, L = nt.nodes, nt.links
+    out = N.new('ShaderNodeOutputMaterial')
+    bsdf = N.new('ShaderNodeBsdfPrincipled')
+    bsdf.inputs['Base Color'].default_value = color
+    bsdf.inputs['Roughness'].default_value = 0.35
+    bsdf.inputs['Metallic'].default_value = 0.35
+    noise = N.new('ShaderNodeTexNoise')
+    noise.inputs['Scale'].default_value = 18.0
+    noise.inputs['Detail'].default_value = 6.0
+    bump = N.new('ShaderNodeBump')
+    bump.inputs['Strength'].default_value = 0.6
+    L.new(noise.outputs['Fac'], bump.inputs['Height'])
+    L.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
+    L.new(bsdf.outputs[0], out.inputs[0])
+    return mat
+
+
+def _along(name, radius, start, end, material, vertices=24):
+    """start から end へ向いた円柱（腕や電源の筒）。"""
+    import mathutils
+    a, b = mathutils.Vector(start), mathutils.Vector(end)
+    obj = _cylinder(name, radius, (b - a).length, (a + b) / 2, material, vertices=vertices)
+    obj.rotation_euler = (b - a).to_track_quat('Z', 'Y').to_euler()
+    return obj
+
+
 def build_probe(scale):
-    """記号的な探査機。口径1mの望遠鏡の筒が +Y（太陽の方）を向く。原点が筒の後ろの端。"""
+    """記号的な探査機。口径1mの望遠鏡の筒が +Y（太陽の方）を向く。原点が筒の後ろの端。
+
+    最初は筒と箱と2本の腕だけで「探査機が雑すぎた」（11-01ユーザー）。実際の作りに沿って足した:
+    日よけのフードと補強の帯のある望遠鏡、六角柱の本体と金色の断熱材、地球と交信する皿のアンテナ（1200AUからは
+    地球も太陽とほぼ同じ方向なので、望遠鏡と同じ向き）、ひれの付いた原子力電池（RTG。1200AUでは太陽電池が使えない）、
+    姿勢制御のノズル、星を見て向きを測るカメラ。
+    """
+    import mathutils
     # 金属にすると黒い宇宙を映して真っ黒になるので、金属感は弱くする
-    hull = _metal("ProbeHull", PROBE_HULL_COLOR, roughness=0.5, metallic=0.2)
-    foil = _metal("ProbeFoil", PROBE_FOIL_COLOR, roughness=0.4, metallic=0.3)
+    white = _metal("ProbeWhite", (0.78, 0.78, 0.76, 1), roughness=0.55, metallic=0.0)
+    band = _metal("ProbeBand", (0.22, 0.22, 0.24, 1), roughness=0.5, metallic=0.3)
+    foil = _foil("ProbeFoil", PROBE_FOIL_COLOR)
     dark = _metal("ProbeDark", (0.02, 0.02, 0.02, 1), roughness=0.9, metallic=0.0)
+    grey = _metal("ProbeGrey", (0.35, 0.35, 0.37, 1), roughness=0.6, metallic=0.4)
     s = scale
+    along_y = (math.radians(90), 0, 0)
     parts = []
-    # 望遠鏡の筒（前の口は暗い内側が見える）
-    parts.append(_cylinder("ProbeTube", 0.5 * s, 1.6 * s, (0, 0.8 * s, 0), hull, (math.radians(90), 0, 0)))
-    parts.append(_cylinder("ProbeTubeInner", 0.46 * s, 0.02 * s, (0, 1.59 * s, 0), dark, (math.radians(90), 0, 0)))
-    # 本体（筒の後ろの箱、金色の箔）。筒より細くして、後ろから見ても筒が隠れないようにする
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, -0.3 * s, 0))
-    box = bpy.context.active_object
-    box.name = "ProbeBus"
-    box.scale = (0.6 * s, 0.6 * s, 0.6 * s)
-    box.data.materials.append(foil)
-    parts.append(box)
-    # 電源（RTG）を左右の腕の先に
-    for side in (-1, 1):
-        parts.append(_cylinder(f"ProbeBoom_{side}", 0.03 * s, 1.6 * s, (side * 1.1 * s, -0.3 * s, 0), hull,
-                               (0, math.radians(90), 0), 12))
-        parts.append(_cylinder(f"ProbeRTG_{side}", 0.16 * s, 0.6 * s, (side * 1.9 * s, -0.3 * s, 0), dark,
-                               (0, math.radians(90), 0), 24))
+    # 望遠鏡: 筒・補強の帯・日よけのフード・暗い口
+    parts.append(_cylinder("ProbeTube", 0.5 * s, 1.5 * s, (0, 0.75 * s, 0), white, along_y))
+    for i, y in enumerate((0.12, 0.75, 1.38)):
+        parts.append(_cylinder(f"ProbeTubeBand_{i}", 0.515 * s, 0.05 * s, (0, y * s, 0), band, along_y))
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.56 * s, depth=0.5 * s, location=(0, 1.75 * s, 0), rotation=along_y,
+                                        vertices=48, end_fill_type='NOTHING')
+    hood = bpy.context.active_object
+    hood.name = "ProbeHood"
+    bpy.ops.object.shade_smooth()
+    hood.data.materials.append(white)
+    parts.append(hood)
+    parts.append(_cylinder("ProbeAperture", 0.48 * s, 0.01 * s, (0, 1.51 * s, 0), dark, along_y))
+    # 本体: 六角柱に金色の断熱材、後ろの板
+    parts.append(_cylinder("ProbeBus", 0.62 * s, 0.6 * s, (0, -0.3 * s, 0), foil, along_y, vertices=6))
+    # 後ろの面も断熱材で覆う（カメラは後ろ寄りから見るので、灰色の板だと金色がほとんど見えなかった）
+    parts.append(_cylinder("ProbeBusBack", 0.64 * s, 0.04 * s, (0, -0.62 * s, 0), foil, along_y, vertices=6))
+    # 皿のアンテナ（望遠鏡と同じ +Y 向き）と、本体からの腕・受信部
+    dish_c = mathutils.Vector((1.05 * s, 0.05 * s, 0.1 * s))
+    bpy.ops.mesh.primitive_cone_add(radius1=0.06 * s, radius2=0.45 * s, depth=0.16 * s, location=dish_c,
+                                    rotation=(math.radians(-90), 0, 0), vertices=48, end_fill_type='NOTHING')
+    dish = bpy.context.active_object
+    dish.name = "ProbeDish"
+    bpy.ops.object.shade_smooth()
+    dish.data.materials.append(white)
+    parts.append(dish)
+    parts.append(_along("ProbeDishArm", 0.03 * s, (0.5 * s, -0.3 * s, 0.05 * s), dish_c - mathutils.Vector((0, 0.1 * s, 0)),
+                        grey, 12))
+    parts.append(_along("ProbeDishFeed", 0.015 * s, dish_c, dish_c + mathutils.Vector((0, 0.38 * s, 0)), grey, 8))
+    parts.append(_cylinder("ProbeDishSub", 0.06 * s, 0.02 * s, tuple(dish_c + mathutils.Vector((0, 0.38 * s, 0))), grey,
+                           along_y, 16))
+    # 原子力電池（RTG）: 斜め後ろの腕の先に、ひれの付いた筒
+    root = mathutils.Vector((-0.5 * s, -0.45 * s, -0.1 * s))
+    tip = root + mathutils.Vector((-1.0, -0.55, -0.2)).normalized() * 1.2 * s
+    parts.append(_along("ProbeRTGBoom", 0.025 * s, root, tip, grey, 12))
+    axis = (tip - root).normalized()
+    rtg_end = tip + axis * 0.6 * s
+    parts.append(_along("ProbeRTG", 0.13 * s, tip, rtg_end, band, 24))
+    quat = axis.to_track_quat('Z', 'Y')
+    for k in range(8):
+        a = 2 * math.pi * k / 8
+        offset = quat @ mathutils.Vector((math.cos(a), math.sin(a), 0)) * 0.19 * s
+        bpy.ops.mesh.primitive_cube_add(size=1, location=(tip + rtg_end) / 2 + offset)
+        fin = bpy.context.active_object
+        fin.name = f"ProbeRTGFin_{k}"
+        fin.rotation_euler = (quat @ mathutils.Quaternion((0, 0, 1), a)).to_euler()
+        fin.scale = (0.12 * s, 0.01 * s, 0.55 * s)
+        fin.data.materials.append(band)
+        parts.append(fin)
+    # 姿勢制御のノズル（本体の後ろの角）と、星を見るカメラ
+    for k in range(4):
+        a = math.radians(30 + 90 * k)
+        loc = (0.55 * s * math.cos(a), -0.68 * s, 0.55 * s * math.sin(a))
+        bpy.ops.mesh.primitive_cone_add(radius1=0.05 * s, radius2=0.02 * s, depth=0.1 * s, location=loc,
+                                        rotation=(math.radians(90), 0, 0), vertices=12)
+        nozzle = bpy.context.active_object
+        nozzle.name = f"ProbeNozzle_{k}"
+        nozzle.data.materials.append(grey)
+        parts.append(nozzle)
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, -0.25 * s, 0.68 * s))
+    tracker = bpy.context.active_object
+    tracker.name = "ProbeStarTracker"
+    tracker.scale = (0.14 * s, 0.14 * s, 0.12 * s)
+    tracker.data.materials.append(white)
+    parts.append(tracker)
+    parts.append(_cylinder("ProbeStarTrackerLens", 0.045 * s, 0.03 * s, (0, -0.25 * s, 0.75 * s), dark, (0, 0, 0), 16))
     return parts
 
 
