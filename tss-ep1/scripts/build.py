@@ -33,10 +33,10 @@ def build_frame(s, percentage=100):
     sc.clear_scene()
     kind = s.get("kind", "rays")
     scene = bpy.context.scene
-    if kind == "black":
+    if kind == "space":
         sc.build_camera(0, 19.2, VFOV_DEG)
         sc.setup_render(scene, percentage)
-        return "暗転"
+        return "星だけ"
 
     view_h = s["view_h_bu"]
     top_z = -sc.bu(s["anchor_au"]) + s["anchor_from_top"] * view_h

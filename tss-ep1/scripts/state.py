@@ -56,15 +56,14 @@ RAYS_GROW_2A = (25, 85)  # 2a: 太陽の脇を通る光が上から伸びる
 ZOOM_OUT = (0, 75)  # 3a: 2aの寄りから3aの引きへ
 OTHERS_FADE_OUT = (0, 20)  # 3a: 2aの光線のうち一番内側（b=R）以外を消し、1本から始める
 ADD_RAY_FROM, ADD_RAY_EVERY, ADD_RAY_GROW = 75, 10, 15  # 3a: 内側から1本ずつ足す（伸びきるまで15フレーム）
-DESCENT_AU = 548  # 3b: 0AU → 548AU を一定速（1フレーム約2.4AU）
-DESCENT = (45, 270)  # 3b: 頭は太陽で止めて「1AUは地球と太陽の距離」、終わりは548AUで止めて「548AUより先」
+DESCENT_AU = 548  # 3b: 0AU → 548AU を一定速（1フレーム約2.3AU）
+DESCENT = (0, 240)  # 3b: 太陽からすぐ下り始め、終わりは548AUで止めて「光が集まるのは548AUより先」
 DESCENT_EASE = 12  # 3b: 動き出しと止まりのなめらかさ（フレーム）。その間は一定速
 INSET_POP = (30, 46)  # 4a: 太陽の点から視野がピュッと開く
 RING_FADE_IN = (50, 70)  # 4a: 開いた視野の中で光の輪が灯る
 DOT_TO_IMAGE = (100, 110)  # 4b: 光の点が消え、粗いモザイクが現れる
 REFINE = (100, 180)  # 4b: モザイクが細かくなっていく（4 → 1000画素四方）
 REFINE_STEPS = [4, 8, 16, 32, 64, 128, 256, 512, 1000]
-RECAP_PULL = 1.08  # 4c: 3aの引きの絵を背景に、終わりまでにこの倍率だけゆっくり引く
 
 
 def _ramp(t, span):
@@ -137,13 +136,9 @@ def scene_state(frame, cut=None):
         s["image_opacity"] = mix
         x = _ramp(t, REFINE)
         s["pixels"] = REFINE_STEPS[min(int(x * len(REFINE_STEPS)), len(REFINE_STEPS) - 1)] if mix > 0 else 0
-    elif cut == "4c":
-        # 名前の背景は3aの最後の絵（真っ暗だと名前が浮く: 11-01ユーザー「最後のテロップだけ真っ暗なのはどうだろう」）
-        s = _state_3a(CUT_BY_ID["3a"]["end"] - CUT_BY_ID["3a"]["start"])
-        x = _smooth(t / (c["end"] - c["start"]))
-        s["view_h_bu"] *= _lerp(1.0, RECAP_PULL, x)
     else:
-        s = dict(kind="black")
+        # 4c: 名前の背景は星だけの宇宙（11-01ユーザー。暗転 →「真っ暗はどうだろう」→ 3aの引きの絵 →「ただの宇宙でいい」）
+        s = dict(kind="space")
     s["cut"], s["frame"], s["t"] = cut, frame, t
     return s
 
