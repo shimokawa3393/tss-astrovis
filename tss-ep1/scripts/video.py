@@ -6,6 +6,7 @@
 実行:
   /Applications/Blender.app/Contents/MacOS/Blender --background --python tss-ep1/scripts/video.py -- [--draft | --preview]
   ... -- --draft --still 450   （組み上がった画面のその1コマ（元のフレーム番号）だけを stillcheck へ）
+  ... -- --range 1 420         （その範囲だけ。本番のフルレンダーの途中で、描けた所まで見るとき）
 出力: tss-ep1/mp4/TSS_Episode01_SGL[_draft|_preview].mp4
 
 Blender 5.x: FFMPEG 出力の前に image_settings.media_type='VIDEO'、VSE は .strips、new_effect は長さで指定（ep2・ep4の教訓）。
@@ -64,11 +65,15 @@ def main():
     ap.add_argument("--draft", action="store_true")
     ap.add_argument("--preview", action="store_true")
     ap.add_argument("--still", type=int)
+    ap.add_argument("--range", nargs=2, type=int, help="この範囲（元のフレーム番号）だけを書き出す（描けた所まで見るとき）")
     args = ap.parse_args(argv)
+    first, last = args.range if args.range else (1, TOTAL_FRAMES)
     step = DRAFT_STEP if args.draft else 1
     scale = 0.25 if args.draft else 0.5 if args.preview else 1.0
     frames_dir = os.path.join(EP_DIR, "draft_frames" if args.draft else "preview_frames" if args.preview else "frames")
     suffix = "_draft" if args.draft else "_preview" if args.preview else ""
+    if args.range:
+        suffix += f"_{first:04d}-{last:04d}"
 
     bpy.ops.wm.read_homefile(use_empty=True)
     scene = bpy.context.scene
@@ -80,12 +85,15 @@ def main():
     def to_out(frame):  # 元のフレーム番号 → 書き出す動画のフレーム番号
         return (frame - 1) // step + 1
 
-    scene.frame_start, scene.frame_end = 1, to_out(TOTAL_FRAMES)
+    scene.frame_start, scene.frame_end = to_out(first), to_out(last)
     editor = scene.sequence_editor_create()
 
     for cut in RENDERED_CUTS:
         c = CUT_BY_ID[cut]
-        frames = range(c["start"] + (-(c["start"] - 1) % step), c["end"] + 1, step)
+        start, end = max(c["start"], first), min(c["end"], last)
+        if start > end:
+            continue
+        frames = range(start + (-(start - 1) % step), end + 1, step)
         files = [f"ep1_{f:04d}.png" for f in frames]
         missing = [f for f in files if not os.path.exists(os.path.join(frames_dir, f))]
         if missing:
@@ -109,7 +117,7 @@ def main():
                                    (0.5, y))
                 fade(strip, f0, f1, fade_frames)
                 channel += 1
-    note_cut = CUT_BY_ID[IMAGE_NOTE["cut"]]
+    note_cut = CUT_BY_ID[IMAGE_NOTE["cut"]]  # 範囲の外でも置いてよい（書き出す範囲だけが動画になる）
     f0, f1 = to_out(note_cut["start"]), to_out(note_cut["end"]) + 1
     text_strip(editor, "ImageNote", channel, f0, f1 - f0, IMAGE_NOTE["text"], IMAGE_NOTE["size"] * scale,
                IMAGE_NOTE["location"], 'LEFT').color = (1, 1, 1, 0.7)
