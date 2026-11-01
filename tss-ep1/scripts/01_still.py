@@ -43,6 +43,8 @@ LAYOUTS = {
     "4b_dot": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=0),
     "4b_mid": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=24),
     "4b": dict(kind="planet", anchor_au=0, anchor_from_top=0.60, view_h_bu=19.2, pixels=1000),
+    # 4a: 1200AUの探査機の後ろ上から太陽を見る。太陽は上から38%、探査機は下の方。輪の半径は太陽の1.48倍（1200AUでの値）
+    "4a": dict(kind="probe", anchor_au=0, anchor_from_top=0.5, view_h_bu=19.2, sun_radius_px=70, sun_from_top=0.38, probe_offset=(-2.0, -16.0, 6.5), vfov_deg=60),
 }
 
 
@@ -61,7 +63,10 @@ def main():
     sc.clear_scene()
     kind = layout.get("kind", "rays")
     sun_r = None
-    if kind == "lens":
+    if kind == "probe":
+        props.build_probe_view(layout["sun_radius_px"], layout["sun_from_top"], layout["probe_offset"],
+                               layout["vfov_deg"])
+    elif kind == "lens":
         props.build_lens_scene(px, top_z + margin, bottom_z - margin, half_width_px=460, thickness_px=80,
                                ray_x_px=[80, 160, 240, 320, 400], focus_px=0.35 * sc.RESOLUTION[1], fade_px=300)
     elif kind == "planet":
@@ -79,7 +84,8 @@ def main():
             sc.build_ruler(layout["ruler_au"], px)
         if layout.get("neptune"):
             sc.build_neptune(20 * px, -150 * px, 26 * px)
-    sc.build_camera(top_z - view_h / 2, view_h, VFOV_DEG)
+    if kind != "probe":
+        sc.build_camera(top_z - view_h / 2, view_h, VFOV_DEG)
 
     scene = bpy.context.scene
     sc.setup_render(scene, percentage)

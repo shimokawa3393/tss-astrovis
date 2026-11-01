@@ -185,3 +185,135 @@ def build_planet_image(center_z, radius_px, pixels, px, lon_center_deg=122.0, la
     L.new(mix.outputs[0], out.inputs[0])
     disk.data.materials.append(mat)
     return disk
+
+
+# ------------------------------------------------------------
+# 4a: 1200AUの探査機と、太陽のまわりの光の輪（アインシュタインリング）
+# ------------------------------------------------------------
+PROBE_DISTANCE_AU = 1200  # 論文で像を集める位置（台本: 548AUは最短の理論値、4aの探査機は1200AU）
+RING_COLOR = (0.8, 0.9, 1.0, 1)  # 4bの光の点と同じ青白（輪が4bの惑星の光だとつながるように）
+RING_STRENGTH = 6.0
+PROBE_HULL_COLOR = (0.55, 0.55, 0.58, 1)
+PROBE_FOIL_COLOR = (0.75, 0.55, 0.2, 1)  # 本体の断熱材（金色の箔）
+
+
+def einstein_ring_ratio(distance_au=PROBE_DISTANCE_AU):
+    """探査機から見た輪の半径 / 太陽の半径。輪を作る光線の b は焦点距離 F ∝ b² から b = R√(z/F(R))。"""
+    from physics import R_SUN, focal_distance, to_au
+    return math.sqrt(distance_au / to_au(focal_distance(R_SUN)))
+
+
+def _metal(name, color, roughness=0.45, metallic=0.8):
+    mat, nt = sc.new_material(name)
+    out = nt.nodes.new('ShaderNodeOutputMaterial')
+    bsdf = nt.nodes.new('ShaderNodeBsdfPrincipled')
+    bsdf.inputs['Base Color'].default_value = color
+    bsdf.inputs['Roughness'].default_value = roughness
+    bsdf.inputs['Metallic'].default_value = metallic
+    nt.links.new(bsdf.outputs[0], out.inputs[0])
+    return mat
+
+
+def _cylinder(name, radius, depth, location, material, rotation=(0, 0, 0), vertices=48):
+    bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=depth, location=location, rotation=rotation,
+                                        vertices=vertices)
+    obj = bpy.context.active_object
+    obj.name = name
+    bpy.ops.object.shade_smooth()
+    obj.data.materials.append(material)
+    return obj
+
+
+def build_probe(scale):
+    """記号的な探査機。口径1mの望遠鏡の筒が +Y（太陽の方）を向く。原点が筒の後ろの端。"""
+    # 金属にすると黒い宇宙を映して真っ黒になるので、金属感は弱くする
+    hull = _metal("ProbeHull", PROBE_HULL_COLOR, roughness=0.5, metallic=0.2)
+    foil = _metal("ProbeFoil", PROBE_FOIL_COLOR, roughness=0.4, metallic=0.3)
+    dark = _metal("ProbeDark", (0.02, 0.02, 0.02, 1), roughness=0.9, metallic=0.0)
+    s = scale
+    parts = []
+    # 望遠鏡の筒（前の口は暗い内側が見える）
+    parts.append(_cylinder("ProbeTube", 0.5 * s, 1.6 * s, (0, 0.8 * s, 0), hull, (math.radians(90), 0, 0)))
+    parts.append(_cylinder("ProbeTubeInner", 0.46 * s, 0.02 * s, (0, 1.59 * s, 0), dark, (math.radians(90), 0, 0)))
+    # 本体（筒の後ろの箱、金色の箔）。筒より細くして、後ろから見ても筒が隠れないようにする
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, -0.3 * s, 0))
+    box = bpy.context.active_object
+    box.name = "ProbeBus"
+    box.scale = (0.6 * s, 0.6 * s, 0.6 * s)
+    box.data.materials.append(foil)
+    parts.append(box)
+    # 電源（RTG）を左右の腕の先に
+    for side in (-1, 1):
+        parts.append(_cylinder(f"ProbeBoom_{side}", 0.03 * s, 1.6 * s, (side * 1.1 * s, -0.3 * s, 0), hull,
+                               (0, math.radians(90), 0), 12))
+        parts.append(_cylinder(f"ProbeRTG_{side}", 0.16 * s, 0.6 * s, (side * 1.9 * s, -0.3 * s, 0), dark,
+                               (0, math.radians(90), 0), 24))
+    return parts
+
+
+def build_ring(center, radius, width, view_dir):
+    """太陽のまわりの細い光の輪。カメラから見た面（view_dir に垂直）に置く。"""
+    pts = []
+    up = (0, 0, 1)
+    vx = (view_dir[1] * up[2] - view_dir[2] * up[1], view_dir[2] * up[0] - view_dir[0] * up[2],
+          view_dir[0] * up[1] - view_dir[1] * up[0])
+    n = math.sqrt(sum(c * c for c in vx))
+    vx = tuple(c / n for c in vx)
+    vz = (vx[1] * view_dir[2] - vx[2] * view_dir[1], vx[2] * view_dir[0] - vx[0] * view_dir[2],
+          vx[0] * view_dir[1] - vx[1] * view_dir[0])
+    for i in range(241):
+        a = 2 * math.pi * i / 240
+        pts.append(tuple(center[k] + radius * (math.cos(a) * vx[k] + math.sin(a) * vz[k]) for k in range(3)))
+    return sc.polyline("EinsteinRing", pts, sc.emission_material("EinsteinRingGlow", RING_COLOR, RING_STRENGTH), width)
+
+
+def build_probe_view(sun_radius_px, sun_from_top, probe_offset, vfov_deg, sun_distance=4000.0):
+    """探査機の後ろ上から、太陽の方を見る（太陽は遠く、画面では記号の大きさ）。
+
+    太陽は +Y のずっと先。探査機は原点で +Y を向く。カメラは probe_offset（探査機から見た位置）に置き、
+    太陽が画面の上から sun_from_top、横は中央に来るよう、太陽の方向から下へ傾ける。
+    """
+    import mathutils
+    res_h = sc.RESOLUTION[1]
+    tan_half = math.tan(math.radians(vfov_deg) / 2)
+    cam_loc = mathutils.Vector(probe_offset)
+    sun_loc = mathutils.Vector((cam_loc.x, sun_distance, cam_loc.z))  # 太陽はカメラの真正面の方向（横は中央）
+    # 太陽を画面の中心より上に置く分だけ、カメラを下へ傾ける
+    pitch = math.atan((0.5 - sun_from_top) * 2 * tan_half)
+    cam_data = bpy.data.cameras.new("Camera")
+    cam_data.sensor_fit = 'VERTICAL'
+    cam_data.angle = math.radians(vfov_deg)
+    cam_data.clip_start = 0.05
+    cam_data.clip_end = sun_distance * 2
+    cam = bpy.data.objects.new("Camera", cam_data)
+    bpy.context.collection.objects.link(cam)
+    cam.location = cam_loc
+    cam.rotation_euler = (math.radians(90) - pitch, 0, 0)
+    bpy.context.scene.camera = cam
+
+    # 太陽（記号の大きさ）: 画面で sun_radius_px になる半径
+    dist = (sun_loc - cam_loc).length
+    sun_r = dist * sun_radius_px / (res_h / 2) * tan_half
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=sun_r, location=sun_loc, segments=64, ring_count=32)
+    sun = bpy.context.active_object
+    sun.name = "Sun"
+    bpy.ops.object.shade_smooth()
+    sun.data.materials.append(sc.sun_material())
+    halo = sc.build_halo(sun_r, extent=0.6, strength=0.5)
+    halo.location = sun_loc + mathutils.Vector((0, sun_r * 1.5, 0))
+    ring = build_ring(tuple(sun_loc), sun_r * einstein_ring_ratio(), sun_r * 0.035, (0, 1, 0))
+
+    # 探査機を太陽の光（筒の前から）と、弱い星明かり（カメラ側の左上から）で照らす
+    build_probe(1.0)
+    key = bpy.data.lights.new("SunLight", type='SUN')
+    key.energy = 3.0
+    key_obj = bpy.data.objects.new("SunLight", key)
+    bpy.context.collection.objects.link(key_obj)
+    key_obj.rotation_euler = (math.radians(-90), 0, 0)  # +Y から -Y へ
+    fill = bpy.data.lights.new("FillLight", type='SUN')
+    fill.energy = 2.0
+    fill.color = (0.75, 0.85, 1.0)
+    fill_obj = bpy.data.objects.new("FillLight", fill)
+    bpy.context.collection.objects.link(fill_obj)
+    fill_obj.rotation_euler = (math.radians(60), 0, math.radians(-30))
+    return cam, sun, ring
