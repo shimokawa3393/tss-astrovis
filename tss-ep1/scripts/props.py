@@ -297,6 +297,12 @@ def build_telescope_inset(cam, vfov_deg, center_px, radius_px, sun_radius_px, fr
                                        local(fx + tangent_len * math.cos(a), fy + tangent_len * math.sin(a), 0.999)],
                                       leader, 1.0 * k), cam)
 
+    # 点の脇に「太陽」（海王星の目印と同じ書き方。動画ではこの点から視野がピュッと開く: 11-01ユーザー）
+    label = sc.text_label("SunDotLabel", "太陽", 0, 0, 26 * k)
+    _attach_to_camera(label, cam)
+    label.location = local(fx + 22, fy, 0.999)
+    label.rotation_euler = (0, 0, 0)
+
     # 太陽の円盤（にじみは輪が埋もれないよう小さく）と光の輪
     sun_r = sun_radius_px * k
     bpy.ops.mesh.primitive_uv_sphere_add(radius=sun_r, location=local(cx, cy, 1.0), segments=64, ring_count=32)
