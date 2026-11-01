@@ -14,9 +14,16 @@ import scene as sc
 
 EARTH_TEXTURE = os.path.join(sc.TEXTURE_DIR, "2k_earth_daymap.jpg")  # Solar System Scope（CC BY 4.0）
 
-LENS_EDGE_COLOR = (0.75, 0.88, 1.0, 1)
-LENS_EDGE_STRENGTH = 1.2
-LENS_FILL_OPACITY = 0.06
+LENS_EDGE_COLOR = (0.7, 0.9, 1.0, 1)
+LENS_EDGE_STRENGTH = 1.4
+# 中は淡い水色のガラス色。上ほど明るく濃い（11-01ユーザー「少しレンズっぽく見える色にしてね」。最初は灰色で不透明度0.06）
+LENS_FILL_COLOR = (0.45, 0.78, 1.0, 1)
+LENS_FILL_STRENGTH = (0.7, 0.2)  # 上の面 → 下の面
+LENS_FILL_OPACITY = (0.3, 0.12)
+# 縁のまっすぐな側面（画素）。枠なしの虫眼鏡の断面のように、両端の尖りを切って厚みを見せる（11-01ユーザー
+# 「両サイドを少し直線にして厚みを表現して」「レンズ感出さなくていいよ、線だけでいい」。立体のガラスも試したがやめた）
+LENS_EDGE_PX = 50
+LENS_CORNER_PX = 0  # 弧と側面がつながる角の丸め（0で角のまま）。14pxで丸めたが、線の図には角ありが合う（11-01ユーザー「角ありでゴー」）
 FOCUS_GLOW_COLOR = (1.0, 0.85, 0.6, 1)
 VIEWFINDER_STRENGTH = 0.35
 
@@ -53,6 +60,44 @@ def translucent_emission(name, color, strength, opacity):
 # ------------------------------------------------------------
 # 1a: レンズ
 # ------------------------------------------------------------
+def _walk(points, i, dist, step):
+    """閉じた点の列を、i から step（±1）の向きに dist だけたどった位置と、その先にある点の番号。"""
+    n = len(points)
+    p = points[i]
+    while True:
+        j = (i + step) % n
+        q = points[j]
+        seg = math.dist(p, q)
+        if seg >= dist:
+            t = dist / seg
+            return (p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t), j
+        dist -= seg
+        p, i = q, j
+
+
+def _round_corners(points, corners, radius, steps=8):
+    """閉じた点の列の角（corners の番号）を、前後 radius の所をつなぐ2次ベジエで丸める。"""
+    n = len(points)
+    skip, fillets = set(), {}
+    for c in corners:
+        a, keep_before = _walk(points, c, radius, -1)
+        b, keep_after = _walk(points, c, radius, +1)
+        p = points[c]
+        fillets[(keep_before + 1) % n] = [
+            ((1 - t) ** 2 * a[0] + 2 * (1 - t) * t * p[0] + t * t * b[0],
+             (1 - t) ** 2 * a[1] + 2 * (1 - t) * t * p[1] + t * t * b[1]) for t in (k / steps for k in range(steps + 1))]
+        j = (keep_before + 1) % n
+        while j != keep_after:  # 2点のあいだ（角を含む）は曲線に置きかえる
+            skip.add(j)
+            j = (j + 1) % n
+    out = []
+    for i, pt in enumerate(points):
+        out += fillets.get(i, [])
+        if i not in skip:
+            out.append(pt)
+    return out
+
+
 def _clip_below(points, z_min):
     """上から下へ並んだ点の列を、z_min より上だけにする（光線が上から伸びていく途中）。"""
     out = [points[0]]
@@ -73,12 +118,17 @@ def build_lens_scene(px, top_z, bottom_z, half_width_px, thickness_px, ray_x_px,
     front_z を渡すと、光線はそこまで（上から伸びていく途中）。集まる点は光線が届いてから光る。
     ray_alpha: 光線と集まる点の明るさ（1aの終わりで消える）。lens_alpha: レンズの明るさ（2aの頭で太陽と入れ替わる）。
     """
-    w, t = half_width_px * px, thickness_px * px / 2
-    xs = [w * (i / 40 - 1) for i in range(81)]
-    outline = [(x, t * (1 - (x / w) ** 2)) for x in xs] + [(x, -t * (1 - (x / w) ** 2)) for x in reversed(xs)]
     if lens_alpha > 0:
-        _filled_shape("LensFill", outline, translucent_emission("LensFillGlow", LENS_EDGE_COLOR, 0.25,
-                                                                LENS_FILL_OPACITY * lens_alpha))
+        w, t, e = half_width_px * px, thickness_px * px / 2, min(LENS_EDGE_PX * px / 2, thickness_px * px / 2)
+        xs = [w * (i / 40 - 1) for i in range(81)]
+        top = [(x, e + (t - e) * (1 - (x / w) ** 2)) for x in xs]
+        outline = top + [(x, -z) for x, z in reversed(top)]  # 右の側面（上の端 → 下の端）は点をつなぐだけでまっすぐ
+        n = len(top)
+        if LENS_CORNER_PX > 0:
+            outline = _round_corners(outline, [0, n - 1, n, 2 * n - 1], LENS_CORNER_PX * px)
+        _filled_shape("LensFill", outline,
+                      sc.z_ramp_material("LensFillGlow", LENS_FILL_COLOR, t, -t, *LENS_FILL_STRENGTH,
+                                         LENS_FILL_OPACITY[0] * lens_alpha, LENS_FILL_OPACITY[1] * lens_alpha))
         sc.polyline("LensEdge", [(x, -0.05, z) for x, z in outline + outline[:1]],
                     translucent_emission("LensEdgeGlow", LENS_EDGE_COLOR, LENS_EDGE_STRENGTH, lens_alpha), 1.2 * px)
 
@@ -301,9 +351,9 @@ def build_telescope_inset(cam, vfov_deg, center_px, radius_px, sun_radius_px, fr
 
     # 点の脇に「太陽」（海王星の目印と同じ書き方。動画ではこの点から視野がピュッと開く: 11-01ユーザー）
     fx, fy = from_px
-    label = sc.text_label("SunDotLabel", "太陽", 0, 0, 26 * k)
+    label = sc.text_label("SunDotLabel", "太陽", 0, 0, sc.LABEL_PX * k)
     _attach_to_camera(label, cam)
-    label.location = local(fx + 22, fy, 0.999)
+    label.location = local(fx + 26, fy, 0.999)
     label.rotation_euler = (0, 0, 0)
     if grow <= 0.01:
         return

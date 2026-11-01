@@ -18,7 +18,7 @@ VFOV_DEG = 30
 def _lens(px, top_z, bottom_z, front_z, ray_alpha, lens_alpha, shrink_to_px=None):
     """1aのレンズ。2aの頭では、薄れながら太陽の幅まで縮み、太陽の後ろに入る（shrink_to_px）。
     同じ大きさのまま薄れると、太陽に輪がかかって土星に見えた（11-01）。"""
-    half_width, thickness = 460, 80
+    half_width, thickness = 460, 200  # 枠なしの虫眼鏡のような厚み（80 → 150 → 200px）
     if shrink_to_px is not None:
         half_width = shrink_to_px + (half_width - shrink_to_px) * lens_alpha
         thickness *= lens_alpha
@@ -72,9 +72,9 @@ def build_frame(s, percentage=100):
         if "ruler_au" in s:
             sc.build_ruler(s["ruler_au"], px)
         if s.get("neptune"):
-            sc.build_neptune(20 * px, -150 * px, 26 * px)
+            sc.build_neptune(32 * px, -220 * px, sc.LABEL_PX * px)
         if s.get("voyager"):
-            sc.build_voyager(-150 * px, px)
+            sc.build_voyager(-220 * px, px)
         # 誇張の値（台本の「実物/模式化」と突き合わせる）
         log = (f"深さ={s['anchor_au']:.1f}AU 1px={px * sc.AXIAL_AU_PER_BU:.3f}AU "
                f"太陽の円の半径={(sun_r or sc.SUN_DRAW_RADIUS_BU) / px:.0f}px 横{sc.LATERAL_K:.0f}倍 "

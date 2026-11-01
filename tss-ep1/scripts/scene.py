@@ -40,7 +40,9 @@ HALO_POWER = 3.0  # 大きいほど縁の近くに光が締まり、外はなめ
 STAR_STRENGTH = 0.6
 
 RULER_COLOR = (0.75, 0.68, 0.55, 1)
-RULER_STRENGTH = 0.5
+RULER_STRENGTH = 0.8
+# 目盛りの数字・目印の名前の大きさ（本番の画素）。最初は26pxで、スマホでは「小さすぎて見えない」（11-01）
+LABEL_PX = 42
 
 SUN_RADIUS_BU = to_au(R_SUN) * LATERAL_K / AXIAL_AU_PER_BU
 
@@ -303,10 +305,10 @@ def build_ruler(max_au, px_bu):
     mat = emission_material("RulerGlow", RULER_COLOR, RULER_STRENGTH)
     for au in range(10, max_au + 1, 10):
         major = au % 100 == 0
-        half = (16 if major else 7) * px_bu
-        polyline(f"Tick_{au:04d}", [(-half, -0.1, -bu(au)), (half, -0.1, -bu(au))], mat, 1.2 * px_bu)
+        half = (28 if major else 12) * px_bu
+        polyline(f"Tick_{au:04d}", [(-half, -0.1, -bu(au)), (half, -0.1, -bu(au))], mat, (3.0 if major else 2.0) * px_bu)
         if major:
-            text_label(f"TickLabel_{au:04d}", f"{au} AU", 26 * px_bu, -bu(au), 26 * px_bu)
+            text_label(f"TickLabel_{au:04d}", f"{au} AU", 40 * px_bu, -bu(au), LABEL_PX * px_bu)
 
 
 def build_neptune(radius_bu, x_bu, label_size_bu):
@@ -338,11 +340,12 @@ def build_voyager(x_bu, px_bu):
     """ボイジャー1号の距離の目印（人類が送った一番遠い探査機。約172AU）。海王星と同じく軸の脇に置き、名前だけ添える。
     3bで「548AUはそのさらに3倍先」と距離感をつかむため（11-01ユーザー「1AUの距離感がわからない人がほとんど」）。"""
     z = -bu(VOYAGER1_AU)
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=4 * px_bu, location=(x_bu, -0.1, z))
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=7 * px_bu, location=(x_bu, -0.1, z))
     dot = bpy.context.active_object
     dot.name = "Voyager1"
     dot.data.materials.append(emission_material("Voyager1Glow", (0.85, 0.92, 1.0, 1), 6.0))
-    text_label("Voyager1Label", "ボイジャー1号", x_bu, z - 30 * px_bu, 26 * px_bu, 'CENTER')
+    build_halo(7 * px_bu, (0.85, 0.92, 1.0, 1), 0.8, 3.0, "Voyager1Halo").location = (x_bu, 0.5, z)
+    text_label("Voyager1Label", "ボイジャー1号", x_bu, z - 7 * px_bu - LABEL_PX * px_bu, LABEL_PX * px_bu, 'CENTER')
     return dot
 
 
