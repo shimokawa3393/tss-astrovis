@@ -159,8 +159,10 @@ def sun_material(fade=1.0):
     if fade >= 1:
         nt.links.new(em.outputs[0], out.inputs[0])
         return mat
-    # 現れる途中は透かす（暗いだけだと黒い円が後ろのレンズと星を隠した）
+    # 現れる途中は透かす（暗いだけだと黒い円が後ろのレンズと星を隠した）。裏側の面は描かない（透けた球の裏と表が重なる順番の
+    # 境目が線になり、明るくなるにつれて動いて「光が右から左へ移動している」ように見えた: 11-01）
     mat.surface_render_method = 'BLENDED'
+    mat.use_backface_culling = True
     tr = nt.nodes.new('ShaderNodeBsdfTransparent')
     mix = nt.nodes.new('ShaderNodeMixShader')
     mix.inputs['Fac'].default_value = fade
