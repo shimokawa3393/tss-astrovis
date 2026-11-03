@@ -186,7 +186,7 @@ def _state_3a(t):
 
 if __name__ == "__main__":
     # bpy なしでは scene を import できないので、Blender の中で: Blender --background --python state.py
-    for f in (1, 60, 175, 181, 195, 250, 421, 500, 660, 661, 706, 800, 930, 990, 991, 1040, 1171, 1300, 1380):
+    for f in (1, 81, 140, 255, 261, 275, 330, 501, 580, 740, 741, 786, 880, 1010, 1070, 1071, 1120, 1251, 1380, 1460):
         st = scene_state(f)
         print(f, {k: (round(v, 3) if isinstance(v, float) else v) for k, v in st.items()
                   if k in ("cut", "t", "anchor_au", "view_h_bu", "inset_grow", "ring_alpha", "pixels", "line_end_au",

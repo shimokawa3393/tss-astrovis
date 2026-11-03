@@ -1,7 +1,7 @@
 """PNG連番とテロップを mp4 にまとめる（このマシンに ffmpeg は無いので Blender の VSE。ep4 の 04_encode_video.py と同じ方式）。
 
 テロップは cuts.py（文言とカット内のフレーム）。上から約11%に、行ごとに少しずつ遅れて出る（ステップフェード）。
-4b の隅に「イメージ」。BGM は AUDIO_PATH（0秒から鳴らす）。
+4b の隅に「イメージ」。BGM は AUDIO_PATH（1aの頭から鳴らす。頭のカード 0a は無音）。
 
 実行:
   /Applications/Blender.app/Contents/MacOS/Blender --background --python tss-ep1/scripts/video.py -- [--draft | --preview]
@@ -30,13 +30,18 @@ TELOP_TOP = 0.89  # 1行目の中心の高さ（下から）。上から約11%�
 TELOP_LINE = 1.35  # 行の間隔（文字の大きさの倍数）
 TELOP_FADE = 0.4  # 秒（ユーザーの好み）
 TELOP_STEP = 0.25  # 秒。2行目以降が遅れて出る（ステップフェード）
-NAME_CUT = "4c"  # 名前だけ画面の真ん中に、少し大きく出す（説明のテロップと区別して、名前の発表にする）
+# 最初と最後のテロップは画面の真ん中（背景は星だけ。TSS 台本フォーマット）。4cの名前だけ少し大きく（名前の発表）
+CENTER_CUTS = ["0a", "4c"]
+NAME_CUT = "4c"
 NAME_SCALE = 1.2
 IMAGE_NOTE = dict(cut="4b", text="※イメージ", size=30, location=(0.06, 0.24))  # 惑星の像はイメージ（隅に表記）
 EP_DIR = sc.EP_DIR
 OUTPUT = os.path.join(EP_DIR, "mp4", "TSS_Episode01_SGL.mp4")
-# 生成した温かい版は約3秒早く終わるので、23.4〜26.0秒の1小節を足して最後の和音を46秒にそろえ、49秒で切ったもの
+# 生成した温かい版は約3秒早く終わるので、23.4〜26.0秒の1小節を足して最後の和音を46秒にそろえ、49秒で切ったもの。
+# 頭のカード（0a）の分は、出だしの1小節をもう1回入れてずらしたが、つなぎ目が「気になる」（ユーザー）。
+# 曲は切り貼りせず、1aの頭から鳴らす（カードは無音。曲と映像の合わせ目はカードを足す前と同じ）
 AUDIO_PATH = os.path.join(EP_DIR, "audio", "warm_extended.wav")
+AUDIO_START_CUT = "1a"
 
 
 def text_strip(editor, name, channel, start, length, body, size, location, anchor_x='CENTER'):
@@ -108,8 +113,8 @@ def main():
     channel = 3
     for c in CUTS:
         for i, (t0, t1, lines) in enumerate(c["telops"]):
-            centered = c["id"] == NAME_CUT
-            size = TELOP_SIZE * (NAME_SCALE if centered else 1.0)
+            centered = c["id"] in CENTER_CUTS
+            size = TELOP_SIZE * (NAME_SCALE if c["id"] == NAME_CUT else 1.0)
             top = 0.5 + (len(lines) - 1) / 2 * size * TELOP_LINE / sc.RESOLUTION[1] if centered else TELOP_TOP
             for j, line in enumerate(lines):
                 f0 = to_out(c["start"] + t0 + int(j * TELOP_STEP * FPS))
@@ -125,7 +130,7 @@ def main():
                IMAGE_NOTE["location"], 'LEFT').color = (1, 1, 1, 0.7)
 
     if AUDIO_PATH:
-        editor.strips.new_sound("BGM", AUDIO_PATH, channel + 1, 1)
+        editor.strips.new_sound("BGM", AUDIO_PATH, channel + 1, to_out(CUT_BY_ID[AUDIO_START_CUT]["start"]))
 
     if args.still:
         scene.frame_set(to_out(args.still))
