@@ -1,7 +1,7 @@
 """PNG連番とテロップを mp4 にまとめる（このマシンに ffmpeg は無いので Blender の VSE。ep4 の 04_encode_video.py と同じ方式）。
 
 テロップは cuts.py（文言とカット内のフレーム）。上から約11%に、行ごとに少しずつ遅れて出る（ステップフェード）。
-4b の隅に「イメージ」。
+4b の隅に「イメージ」。BGM は AUDIO_PATH（0秒から鳴らす）。
 
 実行:
   /Applications/Blender.app/Contents/MacOS/Blender --background --python tss-ep1/scripts/video.py -- [--draft | --preview]
@@ -35,6 +35,8 @@ NAME_SCALE = 1.2
 IMAGE_NOTE = dict(cut="4b", text="※イメージ", size=30, location=(0.06, 0.24))  # 惑星の像はイメージ（隅に表記）
 EP_DIR = sc.EP_DIR
 OUTPUT = os.path.join(EP_DIR, "mp4", "TSS_Episode01_SGL.mp4")
+# 生成した温かい版は約3秒早く終わるので、23.4〜26.0秒の1小節を足して最後の和音を46秒にそろえ、49秒で切ったもの
+AUDIO_PATH = os.path.join(EP_DIR, "audio", "warm_extended.wav")
 
 
 def text_strip(editor, name, channel, start, length, body, size, location, anchor_x='CENTER'):
@@ -122,6 +124,9 @@ def main():
     text_strip(editor, "ImageNote", channel, f0, f1 - f0, IMAGE_NOTE["text"], IMAGE_NOTE["size"] * scale,
                IMAGE_NOTE["location"], 'LEFT').color = (1, 1, 1, 0.7)
 
+    if AUDIO_PATH:
+        editor.strips.new_sound("BGM", AUDIO_PATH, channel + 1, 1)
+
     if args.still:
         scene.frame_set(to_out(args.still))
         scene.render.image_settings.file_format = 'PNG'
@@ -136,6 +141,8 @@ def main():
     scene.render.ffmpeg.format = 'MPEG4'
     scene.render.ffmpeg.codec = 'H264'
     scene.render.ffmpeg.constant_rate_factor = 'MEDIUM' if (args.draft or args.preview) else 'HIGH'
+    if AUDIO_PATH:
+        scene.render.ffmpeg.audio_codec = 'AAC'
     scene.render.filepath = OUTPUT.replace(".mp4", f"{suffix}.mp4")
     bpy.ops.render.render(animation=True)
     print("[video]", scene.render.filepath)
